@@ -2043,15 +2043,26 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
         
         users = self.session.get_layer_users(serverID, gateID, cityID, first_index=1, count=1)
         host = users[0]
-        host_id = host.capcom_id
-        host_name = host.hunter_name
-        #print("HOST ID:", host_id, "HOST NAME:", host_name)
+
+        # ----- Commented out as passing a user's own information to them seems to let them into the city. -----
+        #host_id = host.capcom_id
+        #host_name = host.hunter_name
+        #
+        host_id = self.session.capcom_id
+        host_name = self.session.hunter_name
+        
+        print("USERS:", users)
+        print("HOST:", host.hunter_name, host.capcom_id)
         
         host_name_bytes = bytes(host_name)
         host_id_bytes = bytes(host_id)
         data = struct.pack(">HIIHHHH"+str(len(host_id_bytes))+"sH"+str(len(host_name_bytes))+"s",
                             (2*4)+(2*3), unkInt1, unkInt2, serverID, gateID, cityID, len(host_id_bytes), host_id_bytes, len(host_name_bytes), host_name_bytes)
         print("DATA", data)
+        #print("MY PAT HANDLER:", self.session.pat_handler)
+        #print("HOST PAT HANDLER:", host.pat_handler)
+        
+        #host.pat_handler.send_packet()   # NEXT THING TO TRY: Send a message to the other person, to tell them of the incoming user
         self.send_packet(PatID4.AnsLayerHost, data, seq)
 
     def recvReqLayerMediationList(self, packet_id, data, seq):
@@ -2465,6 +2476,7 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
         self.server.info("Handle client")
         self.server.add_to_debug(self)
         self.session = Session()
+        self.session.set_pat_handler(self)
 
         # There are connect errors if too fast
         # TODO: investigate if it's Dolphin's fault

@@ -52,6 +52,7 @@ class Session(object):
         self.layer = 0
         self.binary_setting = b""
         self.search_payload = None
+        self.pat_handler = None
 
     def get(self, connection_data):
         """Return the session associated with the connection data, if any."""
@@ -80,6 +81,9 @@ class Session(object):
     def new_pat_ticket(self):
         DB.new_pat_ticket(self)
         return to_bytearray(self.pat_ticket)
+        
+    def set_pat_handler(self, handler):
+        self.pat_handler = handler
 
     def get_users(self, first_index, count):
         return DB.get_users(self, first_index, count)
