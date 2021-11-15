@@ -1989,7 +1989,7 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
         """
         data = struct.pack(">H", number)
         self.send_packet(PatID4.AnsLayerCreateFoot, data, seq)
-
+    
     def recvReqLayerUp(self, packet_id, data, seq):
         """ReqLayerUp packet.
 
@@ -2011,6 +2011,48 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
         """
         self.session.layer_up()
         self.send_packet(PatID4.AnsLayerUp, b"", seq)
+        
+    def recvReqLayerHost(self, packet_id, data, seq):
+        """ReqLayerHos packet.
+
+        ID: 64410100
+        JP: レイヤのホスト者要求
+        TR: Layer host request
+
+        Sent by the game when starting to join an existing city.
+        """
+        number, = struct.unpack_from(">H", data)
+        unkInt1, unkInt2, serverID, gateID, cityID = struct.unpack_from(">IIHHH", data, offset=2)  # The city data
+        self.server.debug("LayerHost: {}, {}, {}, {}, {}, {}".format(
+            number, unkInt1, unkInt2, serverID, gateID, cityID))
+        self.sendAnsLayerHost(number, unkInt1, unkInt2, serverID, gateID, cityID, seq)
+        
+    def sendAnsLayerHost(self, number, unkInt1, unkInt2, serverID, gateID, cityID, seq):
+        """AnsLayerHost packet.
+
+        ID: 64410200
+        JP: レイヤのホスト者返答
+        TR: Layer host response
+
+        Sent by the game after recieving a request to join city.
+        """
+        #server_id = self.session.local_info['server_id']
+        #gate_id = self.session.local_info['gate_id']
+        #for i in range(10):
+        #    print("SERVER ID:", server_id, "GATE ID:", gate_id)
+        
+        users = self.session.get_layer_users(serverID, gateID, cityID, first_index=1, count=1)
+        host = users[0]
+        host_id = host.capcom_id
+        host_name = host.hunter_name
+        #print("HOST ID:", host_id, "HOST NAME:", host_name)
+        
+        host_name_bytes = bytes(host_name)
+        host_id_bytes = bytes(host_id)
+        data = struct.pack(">HIIHHHH"+str(len(host_id_bytes))+"sH"+str(len(host_name_bytes))+"s",
+                            (2*4)+(2*3), unkInt1, unkInt2, serverID, gateID, cityID, len(host_id_bytes), host_id_bytes, len(host_name_bytes), host_name_bytes)
+        print("DATA", data)
+        self.send_packet(PatID4.AnsLayerHost, data, seq)
 
     def recvReqLayerMediationList(self, packet_id, data, seq):
         """ReqLayerMediationList packet.
