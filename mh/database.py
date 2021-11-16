@@ -55,6 +55,7 @@ class City(object):
         self.capacity = 4
         self.state = LayerState.EMPTY
         self.players = set()
+        self.host = None
 
     def get_population(self):
         return len(self.players)
@@ -306,6 +307,8 @@ class TempDatabase(object):
     def join_city(self, session, server_id, gate_id, index):
         city = self.get_city(server_id, gate_id, index)
         city.parent.players.remove(session)
+        if not len(city.players):
+            city.host = session
         city.players.add(session)
         session.local_info["city_id"] = index
         session.local_info["city_name"] = city.name
@@ -317,6 +320,10 @@ class TempDatabase(object):
                              session.local_info["city_id"])
         city.parent.players.add(session)
         city.players.remove(session)
+        if not len(city.players):
+            city.host = None
+        else:
+            city.host = city.players[0]
         session.local_info["city_id"] = None
         session.local_info["city_name"] = None
 

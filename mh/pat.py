@@ -94,6 +94,7 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
 
     def send_packet(self, packet_id=0, data=b'', seq=0):
         """Send PAT packet."""
+        #try:
         self.wfile.write(struct.pack(
             ">HHI",
             len(data), seq, packet_id
@@ -104,6 +105,9 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
             PAT_NAMES.get(packet_id, "Packet"),
             packet_id, seq, hexdump(data)
         )
+        #except AttributeError:
+        #    self.server.debug("Enqueueing message to be sent later.")
+        #    self.session.messages.append((packet_id, data, seq))
 
     def recvNtcCollectionLog(self, packet_id, data, seq):
         """NtcCollectionLog packet.
@@ -2025,9 +2029,22 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
         unkInt1, unkInt2, serverID, gateID, cityID = struct.unpack_from(">IIHHH", data, offset=2)  # The city data
         self.server.debug("LayerHost: {}, {}, {}, {}, {}, {}".format(
             number, unkInt1, unkInt2, serverID, gateID, cityID))
-        self.sendAnsLayerHost(number, unkInt1, unkInt2, serverID, gateID, cityID, seq)
         
-    def sendAnsLayerHost(self, number, unkInt1, unkInt2, serverID, gateID, cityID, seq):
+        #users = self.session.get_layer_users(serverID, gateID, cityID, first_index=1, count=1)
+        #host = users[0]
+        host = self.session.get_layer_host(serverID, gateID, cityID)
+        host_id = host.capcom_id
+        host_name = host.hunter_name
+        
+        self_id = self.session.capcom_id
+        self_name = self.session.hunter_name
+        
+        #  not the correct message, still experimenting
+        host.enqueue_message(("sendNtcLayerHost", (number, unkInt1, unkInt2, serverID, gateID, cityID, self_id, self_name, seq)))
+        
+        #self.sendAnsLayerHost(number, unkInt1, unkInt2, serverID, gateID, cityID, self_id, self_name, seq)
+        
+    def sendAnsLayerHost(self, number, unkInt1, unkInt2, serverID, gateID, cityID, id, name, seq):
         """AnsLayerHost packet.
 
         ID: 64410200
@@ -2041,29 +2058,43 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
         #for i in range(10):
         #    print("SERVER ID:", server_id, "GATE ID:", gate_id)
         
-        users = self.session.get_layer_users(serverID, gateID, cityID, first_index=1, count=1)
-        host = users[0]
+        #users = self.session.get_layer_users(serverID, gateID, cityID, first_index=1, count=1)
+        #host = users[0]
 
         # ----- Commented out as passing a user's own information to them seems to let them into the city. -----
         #host_id = host.capcom_id
         #host_name = host.hunter_name
         #
-        host_id = self.session.capcom_id
-        host_name = self.session.hunter_name
+        #host_id = self.session.capcom_id
+        #host_name = self.session.hunter_name
         
-        print("USERS:", users)
-        print("HOST:", host.hunter_name, host.capcom_id)
+        #print("USERS:", users)
+        #print("HOST:", host.hunter_name, host.capcom_id)
         
-        host_name_bytes = bytes(host_name)
-        host_id_bytes = bytes(host_id)
+        host_name_bytes = bytes(name)
+        host_id_bytes = bytes(id)
         data = struct.pack(">HIIHHHH"+str(len(host_id_bytes))+"sH"+str(len(host_name_bytes))+"s",
                             (2*4)+(2*3), unkInt1, unkInt2, serverID, gateID, cityID, len(host_id_bytes), host_id_bytes, len(host_name_bytes), host_name_bytes)
         print("DATA", data)
-        #print("MY PAT HANDLER:", self.session.pat_handler)
-        #print("HOST PAT HANDLER:", host.pat_handler)
         
-        #host.pat_handler.send_packet()   # NEXT THING TO TRY: Send a message to the other person, to tell them of the incoming user
         self.send_packet(PatID4.AnsLayerHost, data, seq)
+
+    def sendNtcLayerHost(self, number, unkInt1, unkInt2, serverID, gateID, cityID, id, name, seq):
+        """AnsLayerHost packet.
+
+        ID: 64411000
+        JP: レイヤのホスト通知
+        TR: Layer host notification
+
+        Sent to the host of a city after a user starts to connect(?)
+        """
+        name_bytes = bytes(name)
+        id_bytes = bytes(id)
+        data = struct.pack(">HIIHHHH"+str(len(id_bytes))+"sH"+str(len(name_bytes))+"s",
+                            (2*4)+(2*3), unkInt1, unkInt2, serverID, gateID, cityID, len(id_bytes), id_bytes, len(name_bytes), name_bytes)
+        print("DATA", data)
+        print("SENDING TO:", self.session.hunter_name)
+        self.send_packet(PatID4.NtcLayerHost, data, seq)
 
     def recvReqLayerMediationList(self, packet_id, data, seq):
         """ReqLayerMediationList packet.
@@ -2470,13 +2501,17 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
                     timeout = current_time + 30
             if e:
                 self.server.error("Select error: %s", e)
+             
+            if len(self.session.messages):
+               message = self.session.messages.pop(0)
+               handler = getattr(self, message[0])
+               handler(*message[1])
 
     def handle(self):
         """Default PAT handler."""
         self.server.info("Handle client")
         self.server.add_to_debug(self)
         self.session = Session()
-        self.session.set_pat_handler(self)
 
         # There are connect errors if too fast
         # TODO: investigate if it's Dolphin's fault
@@ -2486,7 +2521,7 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
             self.handle_client()
         except Exception as e:
             traceback.print_exc()
-
+        
         self.session.delete()
         self.server.del_from_debug(self)
         self.server.info("Client finished!")

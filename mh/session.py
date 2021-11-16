@@ -52,7 +52,7 @@ class Session(object):
         self.layer = 0
         self.binary_setting = b""
         self.search_payload = None
-        self.pat_handler = None
+        self.messages = []
 
     def get(self, connection_data):
         """Return the session associated with the connection data, if any."""
@@ -65,7 +65,10 @@ class Session(object):
                 pati.unpack_string(connection_data.online_support_code)
             )
         return DB.get_session(self)
-
+    
+    def enqueue_message(self, message):
+        self.messages.append(message)
+    
     def get_support_code(self):
         """Return the online support code."""
         return DB.get_support_code(self)
@@ -81,10 +84,7 @@ class Session(object):
     def new_pat_ticket(self):
         DB.new_pat_ticket(self)
         return to_bytearray(self.pat_ticket)
-        
-    def set_pat_handler(self, handler):
-        self.pat_handler = handler
-
+    
     def get_users(self, first_index, count):
         return DB.get_users(self, first_index, count)
 
@@ -140,6 +140,9 @@ class Session(object):
         players = list(DB.get_city(server_id, gate_id, city_id).players)
         start = first_index - 1
         return players[start:start+count]
+    
+    def get_layer_host(self, server_id, gate_id, city_id):
+        return DB.get_city(server_id, gate_id, city_id).host
 
     def leave_server(self):
         DB.leave_server(self)
