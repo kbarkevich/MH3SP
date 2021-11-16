@@ -1762,11 +1762,32 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
         JP: 子レイヤ情報要求
         TR: Child layer information request
         """
-        unk1, = struct.unpack_from(">H", data)
+        layerIndex, = struct.unpack_from(">H", data)
         layer_data = data[2:]  # layer_data with some unknown ones appended
-        self.sendAnsLayerChildInfo(unk1, layer_data, seq)
-
-    def sendAnsLayerChildInfo(self, unk1, layer_data, seq):
+        
+        if layerIndex < 1:
+            pass  # idk
+        elif self.session.local_info["gate_id"] is None:
+            pass  # it's a gate
+        elif self.session.local_info["city_id"] is None:
+            # attempt to notify the city leader
+            hunterData = pati.LayerUserInfo()
+            hunterData.capcom_id = pati.String(self.session.capcom_id)
+            hunterData.hunter_name = pati.String(self.session.hunter_name)
+            for i in range(10000):
+                print("GOING IN: ",layerIndex)
+            cityHost = self.session.get_layer_host(self.session.local_info["server_id"], self.session.local_info["gate_id"], layerIndex)
+            cityHost.enqueue_message(("sendNtcLayerIn", (pati.String(self.session.capcom_id), hunterData, seq)))
+        
+        self.sendAnsLayerChildInfo(layerIndex, layer_data, seq)
+    
+    def sendNtcLayerIn(self, hunterId, hunterData, seq):
+        data = struct.pack(">H", len(hunterId) + len(hunterData))
+        data += pati.pack_string(hunterId)
+        data += hunterData.pack()
+        self.send_packet(PatID4.NtcLayerIn, data, seq)
+    
+    def sendAnsLayerChildInfo(self, layerIndex, layer_data, seq):
         """AnsLayerChildInfo packet.
 
         ID: 64230200
@@ -2030,8 +2051,6 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
         self.server.debug("LayerHost: {}, {}, {}, {}, {}, {}".format(
             number, unkInt1, unkInt2, serverID, gateID, cityID))
         
-        #users = self.session.get_layer_users(serverID, gateID, cityID, first_index=1, count=1)
-        #host = users[0]
         host = self.session.get_layer_host(serverID, gateID, cityID)
         host_id = host.capcom_id
         host_name = host.hunter_name
@@ -2040,9 +2059,9 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
         self_name = self.session.hunter_name
         
         #  not the correct message, still experimenting
-        host.enqueue_message(("sendNtcLayerHost", (number, unkInt1, unkInt2, serverID, gateID, cityID, self_id, self_name, seq)))
+        host.enqueue_message(("sendAnsLayerHost", (number, unkInt1, unkInt2, serverID, gateID, cityID, host_id, host_name, seq)))
         
-        #self.sendAnsLayerHost(number, unkInt1, unkInt2, serverID, gateID, cityID, self_id, self_name, seq)
+        self.sendAnsLayerHost(number, unkInt1, unkInt2, serverID, gateID, cityID, self_id, self_name, seq)
         
     def sendAnsLayerHost(self, number, unkInt1, unkInt2, serverID, gateID, cityID, id, name, seq):
         """AnsLayerHost packet.
