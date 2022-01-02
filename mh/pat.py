@@ -1110,6 +1110,7 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
         TR: Layer start response
         """
         layer = self.session.layer_start()
+        layer.unk_byte_0x12 = 
         self.send_packet(PatID4.AnsLayerStart, layer.pack(), seq)
 
     def recvReqCircleInfoNoticeSet(self, packet_id, data, seq):
@@ -1233,22 +1234,67 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
         JP: レイヤ同期ユーザリスト要求
         TR: Layer sync user list request
         """
+        
+        session = self.session
+        currentUsers = list()
+        
+        if session.local_info['city_id'] != None:
+            # Requesting list of city members
+            city = self.session.get_city()
+            if city.host == session:
+                """
+                // This whole if statement block is doubtful. We are doing this, because is the only way that the
+                // game let the host actually accept new players in. This probably need a little bit better
+                // understanding of some field
+                """
+                hunter = pati.LayerUserInfo()
+                hunter.capcom_id = pati.String(self.session.capcom_id)
+                hunter.hunter_name = pati.String(self.session.hunter_name)
+                currentUsers.append(hunter)
+            else:
+                for hunterSession in city.players:
+                    if hunterSession != session:  # Do not add self to list
+                        hunter = pati.LayerUserInfo()
+                        hunter.capcom_id = pati.String(hunterSession.capcom_id)
+                        hunter.hunter_name = pati.String(hunterSession.hunter_name)
+                        currentUsers.append(hunter)
+        elif session.local_info['gate_id'] != None:
+            # Requesting list of gate members
+            #gate = self.session.get_gate()
+            #for hunterSession in gate.players:
+            #        if hunterSession != session:  # Do not add self to list
+            #            hunter = pati.LayerUserInfo()
+            #            hunter.capcom_id = hunterSession.capcom_id
+            #            hunter.hunter_name = hunterSession.hunter_name
+            #            currentUsers.append(hunterSession)
+            hunter = pati.LayerUserInfo()
+            hunter.capcom_id = pati.String(self.session.capcom_id)
+            hunter.hunter_name = pati.String(self.session.hunter_name)
+            currentUsers.append(hunter)
+            pass
+        elif session.local_info['server_id'] != None:
+            # Requesting list of server members
+            hunter = pati.LayerUserInfo()
+            hunter.capcom_id = pati.String(self.session.capcom_id)
+            hunter.hunter_name = pati.String(self.session.hunter_name)
+            currentUsers.append(hunter)
+            pass
+        
         count, = struct.unpack_from(">B", data)
         unk = struct.unpack_from(">" + count * "B", data, 1)
-        self.sendAnsLayerUserList(unk, seq)
+        self.sendAnsLayerUserList(currentUsers, unk, seq)
 
-    def sendAnsLayerUserList(self, unk, seq):
+    def sendAnsLayerUserList(self, currentUsers, unk, seq):
         """AnsLayerUserList packet.
 
         ID: 64630200
         JP: レイヤ同期ユーザリスト返答
         TR: Layer sync user list response
         """
-        count = 1
+        count = len(currentUsers)
         data = struct.pack(">I", count)
-        user = pati.LayerUserInfo()
-        user.capcom_id = pati.String(self.session.capcom_id)
-        data += user.pack()
+        for unpackedUser in currentUsers:
+            data += unpackedUser.pack()
         self.send_packet(PatID4.AnsLayerUserList, data, seq)
 
     def recvReqLayerUserListHead(self, packet_id, data, seq):
@@ -1774,7 +1820,7 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
             hunterData = pati.LayerUserInfo()
             hunterData.capcom_id = pati.String(self.session.capcom_id)
             hunterData.hunter_name = pati.String(self.session.hunter_name)
-            for i in range(10000):
+            for i in range(2000):
                 print("GOING IN: ",layerIndex)
             cityHost = self.session.get_layer_host(self.session.local_info["server_id"], self.session.local_info["gate_id"], layerIndex)
             cityHost.enqueue_message(("sendNtcLayerIn", (pati.String(self.session.capcom_id), hunterData, seq)))
@@ -1795,7 +1841,9 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
         TR: Child layer information response
         """
         data = struct.pack(">H", 1)
-        data += pati.getDummyLayerData().pack()
+        layer_data = pati.getDummyLayerData()#.pack()
+        
+        data += layer_data.pack()
         data += b"\0" * 2
         self.send_packet(PatID4.AnsLayerChildInfo, data, seq)
 
@@ -2059,9 +2107,9 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
         self_name = self.session.hunter_name
         
         #  not the correct message, still experimenting
-        host.enqueue_message(("sendAnsLayerHost", (number, unkInt1, unkInt2, serverID, gateID, cityID, host_id, host_name, seq)))
+        #host.enqueue_message(("sendAnsLayerHost", (number, unkInt1, unkInt2, serverID, gateID, cityID, host_id, host_name, seq)))
         
-        self.sendAnsLayerHost(number, unkInt1, unkInt2, serverID, gateID, cityID, self_id, self_name, seq)
+        self.sendAnsLayerHost(number, unkInt1, unkInt2, serverID, gateID, cityID, host_id, host_name, seq)
         
     def sendAnsLayerHost(self, number, unkInt1, unkInt2, serverID, gateID, cityID, id, name, seq):
         """AnsLayerHost packet.

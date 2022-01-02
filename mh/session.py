@@ -93,6 +93,9 @@ class Session(object):
 
     def get_servers(self):
         return DB.get_servers()
+        
+    def get_server(self):
+        return DB.get_server(self.local_info["server_id"])
 
     def layer_start(self):
         self.layer = 0
@@ -149,7 +152,11 @@ class Session(object):
 
     def get_gates(self):
         return DB.get_gates(self.local_info["server_id"])
-
+    
+    def get_gate(self):
+        return DB.get_gate(self.local_info["server_id"],
+                             self.local_info["gate_id"])
+    
     def join_gate(self, gate_id):
         DB.join_gate(self, self.local_info["server_id"], gate_id)
 
@@ -159,6 +166,11 @@ class Session(object):
     def get_cities(self):
         return DB.get_cities(self.local_info["server_id"],
                              self.local_info["gate_id"])
+                             
+    def get_city(self):
+        return DB.get_city(self.local_info["server_id"],
+                             self.local_info["gate_id"],
+                             self.local_info["city_id"])
 
     def join_city(self, city_id):
         DB.join_city(self,
