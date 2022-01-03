@@ -45,7 +45,7 @@ def lp_string(s):
 def unpack_lp_string(data, offset=0):
     """Unpack lp_string."""
     size, = struct.unpack_from(">B", data, offset)
-    return data[offset+1:offset+1+size]
+    return data[offset + 1:offset + 1 + size]
 
 
 def lp2_string(s):
@@ -57,7 +57,7 @@ def lp2_string(s):
 def unpack_lp2_string(data, offset=0):
     """Unpack lp2_string."""
     size, = struct.unpack_from(">H", data, offset)
-    return data[offset+2:offset+2+size]
+    return data[offset + 2:offset + 2 + size]
 
 
 class Item(bytes):
@@ -79,8 +79,64 @@ def unpack_byte(data, offset=0):
     return value
 
 
+def pack_extra_info(info):
+    """Pack extra info (list of field_id and int value).
+
+    Extra info are retrieved after the following function calls:
+     - getLayerData
+     - getLayerUserInfo
+     - getCircleInfo
+     - getUserSearchInfo
+
+    It follows a simple format:
+     - field_id, a byte used as an identifier
+     - has_value, a byte telling if it has a value
+     - value: an integer with the field's value (only set if has_value is true)
+
+    TODO: Rename "extra_info" to something meaningful.
+    """
+    data = struct.pack(">B", len(info))
+    for field_id, value in info:
+        has_value = value is not None
+        data += struct.pack(">BB", field_id, int(has_value))
+        if has_value:
+            data += struct.pack(">I", value)
+    return data
+
+
+def unpack_extra_info(data, offset=0):
+    """Unpack extra info (list of field_id and int value).
+
+    Extra info are stored after the following function calls:
+     - putLayerSet
+     - putCircleInfo
+    and is also used in PatInterface::sendReqUserSearchSet.
+
+    TODO: Rename "extra_info" to something meaningful.
+    It seems related to the city info. If correct:
+     - field_id 0x01: ???
+     - field_id 0x02: City's HR limit (if not applicable, 0xffffffff is set)
+     - field_id 0x03: City's goal (if not applicable, 0xffffffff is set)
+     - field_id 0x04: City's seeking
+    """
+    info = []
+    count, = struct.unpack_from(">B", data, offset)
+    offset += 1
+    for _ in range(count):
+        field_id, has_value = struct.unpack_from(">BB", data, offset)
+        offset += 2
+        if has_value:
+            value, = struct.unpack_from(">I", data, offset)
+            offset += 4
+        else:
+            value = None
+        info.append((field_id, value))
+    return info
+
+
 class Byte(Item):
     """PAT item byte class."""
+
     def __new__(cls, b):
         return Item.__new__(cls, pack_byte(b))
 
@@ -110,6 +166,7 @@ def unpack_word(data, offset=0):
 
 class Word(Item):
     """PAT item word class."""
+
     def __new__(cls, w):
         return Item.__new__(cls, pack_word(w))
 
@@ -139,6 +196,7 @@ def unpack_long(data, offset=0):
 
 class Long(Item):
     """PAT item long class."""
+
     def __new__(cls, lg):
         return Item.__new__(cls, pack_long(lg))
 
@@ -163,6 +221,7 @@ def unpack_longlong(data, offset=0):
 
 class LongLong(Item):
     """PAT item long long class."""
+
     def __new__(cls, q):
         return Item.__new__(cls, pack_longlong(q))
 
@@ -182,11 +241,12 @@ def unpack_string(data, offset=0):
         raise AssertionError("Invalid type for string item: {}".format(
             item_type
         ))
-    return data[offset+3:offset+3+length]
+    return data[offset + 3:offset + 3 + length]
 
 
 class String(Item):
     """PAT item string class."""
+
     def __new__(cls, s):
         return Item.__new__(cls, pack_string(s))
 
@@ -207,11 +267,12 @@ def unpack_binary(data, offset=0):
         raise AssertionError("Invalid type for binary item: {}".format(
             item_type
         ))
-    return data[offset+3:offset+3+length]
+    return data[offset + 3:offset + 3 + length]
 
 
 class Binary(Item):
     """PAT item binary class."""
+
     def __new__(cls, b):
         return Item.__new__(cls, pack_binary(b))
 
@@ -235,6 +296,7 @@ def unpack_any(data, offset=0):
 
 class Custom(Item):
     """PAT custom item class."""
+
     def __new__(cls, b, item_type=b'\0'):
         return Item.__new__(cls, item_type + b)
 
@@ -242,10 +304,23 @@ class Custom(Item):
         return "Custom({!r})".format(repr(self[1:]))
 
 
+class FallthroughBug(Custom):
+    """Wordaround a fallthrough bug.
+
+    After reading LayerData's field_0x17 it falls through a getItemAny call.
+    It clobbers the next field by reading the field_id. Then, the game tries
+    to read the next field which was clobbered.
+
+    The workaround uses a dummy field_0xff which will be clobbered on purpose.
+    """
+    def __new__(cls):
+        return Custom.__new__(cls, b"\xff", b"\xff")
+
+
 def unpack_bytes(data, offset=0):
     """Unpack bytes list."""
     count, = struct.unpack_from(">B", data, offset)
-    return struct.unpack_from(">" + count * "B", data, offset+1)
+    return struct.unpack_from(">" + count * "B", data, offset + 1)
 
 
 class PatData(OrderedDict):
@@ -484,11 +559,12 @@ class LayerData(PatData):
         (0x0c, "unk_long_0x0c"),
         (0x0d, "unk_word_0x0d"),
         (0x10, "state"),  # 0 = Joinable / 1 = Empty / 2 = Full
-        (0x11, "unk_long_0x11"),
+        (0x11, "positionSynchronizationInterval"),  # player position synchronization timer
         (0x12, "unk_byte_0x12"),
         (0x15, "unk_bytedec_0x15"),
         (0x16, "unk_string_0x16"),
         (0x17, "unk_binary_0x17"),
+        (0xff, "fallthrough_bug")  # Fill this if field 0x17 is set !!!
     )
 
 
@@ -551,21 +627,21 @@ class CircleInfo(PatData):
         (0x0a, "unk_long_0x0a"),
         (0x0b, "unk_long_0x0b"),
         (0x0c, "unk_long_0x0c"),
-        (0x0d, "unk_string_0x0d"),
+        (0x0d, "leader_capcom_id"),
         (0x0e, "unk_byte_0x0e"),
         (0x0f, "unk_byte_0x0f"),
         (0x0f, "unk_byte_0x10"),
     )
 
 
-class MatchOptionSet(PatData):
+class CircleUserData(PatData):
     FIELDS = (
         (0x01, "unk_binary_0x01"),
         (0x02, "unk_word_0x02"),
-        (0x03, "unk_byte_0x03"),
-        (0x04, "unk_bytedec_0x04"),
-        (0x05, "unk_string_0x05"),
-        (0x06, "unk_string_0x06"),
+        (0x03, "is_standby"),
+        (0x04, "player_index"),
+        (0x05, "capcom_id"),
+        (0x06, "hunter_name"),
     )
 
 
@@ -585,6 +661,14 @@ class LayerUserInfo(PatData):
         (0x03, "layer_host"),
         (0x06, "unk_long_0x06"),
         (0x07, "stats"),
+    )
+
+
+class LayerBinaryInfo(PatData):
+    FIELDS = (
+        (0x01, "unk_long_0x01"),  # time related
+        (0x02, "capcom_id"),
+        (0x03, "hunter_name")
     )
 
 
@@ -618,6 +702,7 @@ def get_fmp_servers(session, first_index, count):
         data += fmp_data.pack()
     return data
 
+
 def get_layer_children(session, first_index, count, sibling=False):
     assert first_index > 0, "Invalid list index"
 
@@ -635,8 +720,12 @@ def get_layer_children(session, first_index, count, sibling=False):
         layer.size = Long(child.get_population())
         layer.capacity = Long(child.get_capacity())
         layer.state = Byte(child.get_state())
+        layer.positionSynchronizationInterval = Long(120)
+        # layer.unk_binary_0x17 = Binary("test")
+        # layer.fallthrough_bug = FallthroughBug()
+        layer.unk_byte_0x12 = Byte(1)
         data += layer.pack()
-         # A strange struct is also used, try to skip it
+        # A strange struct is also used, try to skip it
         data += struct.pack(">B", 0)
     return data
 
@@ -668,7 +757,7 @@ def getDummyLayerData():
     # layer.unk_long_0x0c = Long(1)
     # layer.unk_word_0x0d = Word(1)
     layer.state = Byte(1)
-    # layer.unk_long_0x11 = Long(1)
+    layer.positionSynchronizationInterval = Long(120)
     # layer.unk_long_0x11 = Long(1)
 
     # Might be needed to be >=1 to keep NetworkConnectionStable alive
@@ -681,7 +770,7 @@ def getDummyLayerData():
 
 def getHunterStats(hr=921, profile=b"Navaldeus",
                    title=117, status=1, hr_limit=2, goal=35, seeking=23,
-                   server_type=3):
+                   server_type=3, weapon_type=10, weapon_id=11):
     """
     Offsets:
      - 0x00: Hunter Rank
@@ -700,7 +789,7 @@ def getHunterStats(hr=921, profile=b"Navaldeus",
     if profile[-1] != b"\0":
         profile += b"\0"
 
-    data = fuzz.repeat(fuzz.MSF_PATTERN, 0x100)
+    data = to_bytearray(b"\0" * 0x100)  # fuzz.repeat(fuzz.MSF_PATTERN, 0x100)
 
     def slot(type_id, equipment_id, slots=0):
         """Equipment slot / TODO: Handle gems"""
@@ -709,7 +798,7 @@ def getHunterStats(hr=921, profile=b"Navaldeus",
     data[:2] = struct.pack(">H", hr)
 
     # Weapon / Gun slots (Lance: Nega-Babylon)
-    data[0x10:0x1c] = slot(10, 11)
+    data[0x10:0x1c] = slot(weapon_type, weapon_id)
     data[0x1c:0x28] = b"\xff" * 0xc
     data[0x28:0x34] = b"\xff" * 0xc
 
@@ -721,7 +810,7 @@ def getHunterStats(hr=921, profile=b"Navaldeus",
     data[0x64:0x70] = slot(4, 113)
     data[0x70:0x7c] = slot(6, 7, slots=3)
 
-    data[0x9c:0x9c+len(profile)] = profile
+    data[0x9c:0x9c + len(profile)] = profile
     data[0xf2] = title
     data[0xf3] = status
     data[0xf5] = hr_limit
@@ -729,4 +818,4 @@ def getHunterStats(hr=921, profile=b"Navaldeus",
     data[0xf7] = seeking
     data[0xf8] = server_type
 
-    return Binary(data)
+    return data

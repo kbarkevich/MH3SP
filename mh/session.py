@@ -41,7 +41,8 @@ class Session(object):
             "gate_id": None,
             "gate_name": None,
             "city_id": None,
-            "city_name": None
+            "city_name": None,
+            "circle_id": None,
         }
         self.connection = None
         self.online_support_code = None
@@ -50,6 +51,9 @@ class Session(object):
         self.hunter_name = ""
         self.hunter_stats = None
         self.layer = 0
+        self.binary_setting = b""
+        self.search_payload = None
+        self.binaries = None
 
     def get(self, connection_data):
         """Return the session associated with the connection data, if any."""
@@ -87,6 +91,22 @@ class Session(object):
 
     def get_servers(self):
         return DB.get_servers()
+
+    def get_server(self):
+        assert self.local_info['server_id'] is not None
+        return DB.get_server(self.local_info['server_id'])
+
+    def get_gate(self):
+        assert self.local_info['gate_id'] is not None
+        return DB.get_gate(self.local_info['server_id'], self.local_info['gate_id'])
+
+    def get_city(self):
+        assert self.local_info['city_id'] is not None
+        return DB.get_city(self.local_info['server_id'], self.local_info['gate_id'], self.local_info['city_id'])
+
+    def get_circle(self):
+        assert self.local_info['circle_id'] is not None
+        return self.get_city().circles[self.local_info['circle_id']]
 
     def layer_start(self):
         self.layer = 0
@@ -130,6 +150,11 @@ class Session(object):
             return self.get_cities()
         assert False, "Unsupported layer to get sibling"
 
+    def get_layer_users(self, server_id, gate_id, city_id, first_index, count):
+        players = list(DB.get_city(server_id, gate_id, city_id).players)
+        start = first_index - 1
+        return players[start:start+count]
+
     def leave_server(self):
         DB.leave_server(self)
 
@@ -154,3 +179,23 @@ class Session(object):
 
     def leave_city(self):
         DB.leave_city(self)
+
+    def join_circle(self, circle_id):
+        self.local_info['circle_id'] = circle_id
+
+    def leave_circle(self):
+        self.local_info['circle_id'] = None
+
+    def get_layer_players(self):
+        if self.layer == 0:
+            server = self.get_server()
+            return server.players
+        elif self.layer == 1:
+            gate = self.get_gate()
+            return gate.players
+        elif self.layer == 2:
+            city = self.get_city()
+            return city.players
+        else:
+            assert False, "Can't find layer"
+

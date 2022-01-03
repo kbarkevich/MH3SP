@@ -66,6 +66,14 @@ class PatServer(SocketServer.ThreadingTCPServer, Logger):
         """Return the debug connection list."""
         return self.debug_con
 
+    def get_pat_handler(self, session):
+        """Return pat handler from session"""
+        for handler in self.debug_con:
+            if handler.session == session:
+                return handler
+
+        return None
+
 
 class PatRequestHandler(SocketServer.StreamRequestHandler):
     """Generic PAT request handler class.
@@ -1064,7 +1072,7 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
         user = pati.UserSearchInfo()
         user.capcom_id = pati.String(OTHER_CAPCOM_ID)
         user.name = pati.String(OTHER_HUNTER_NAME)
-        user.unk_binary_0x03 = pati.getHunterStats(seeking=21)
+        user.unk_binary_0x03 = pati.Binary(pati.getHunterStats(seeking=21))
         # Warp location ?
         user.unk_binary_0x04 = pati.Binary(
             # Long: ? + server_type? / Word: server? + gate? + city?
@@ -1076,15 +1084,11 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
         user.unk_string_0x0c = pati.String("StrC")
         user.city_size = pati.Long(4)
         user.city_capacity = pati.Long(3)
-        user.info_mine_0x0f = pati.Long(5)
-        user.info_mine_0x10 = pati.Long(6)
+        user.info_mine_0x0f = pati.Long(int(hash(OTHER_CAPCOM_ID)) & 0xffffffff)
+        user.info_mine_0x10 = pati.Long(int(hash(OTHER_CAPCOM_ID[::-1])) & 0xffffffff)
 
         data = user.pack()
-
-        # A strange struct is also used, try to skip it
-        count = 0
-        data += struct.pack(">B", count) + b"\0" * 2
-
+        data += pati.pack_extra_info([])  # TODO: Figure out the values
         self.send_packet(PatID4.AnsUserSearchInfo, data, seq)
 
     def recvReqLayerStart(self, packet_id, data, seq):
@@ -1154,6 +1158,7 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
         """
         unk1, = struct.unpack_from(">I", data)
         profile_info = pati.unpack_lp2_string(data, 4)
+        self.session.binary_setting = profile_info
         self.sendAnsUserBinarySet(unk1, profile_info, seq)
 
     def sendAnsUserBinarySet(self, unk1, profile_info, seq):
@@ -1177,20 +1182,11 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
         JP: ユーザ検索設定要求
         TR: User search settings request
         """
-        count, = struct.unpack_from(">B", data)
-        sets = []
-        offset = 1
-        for _ in range(count):
-            set_data = struct.unpack_from(">BB", data, offset)
-            offset += 2
-            if set_data[1] == 1:
-                set_data += struct.unpack_from(">I", data, offset)
-                offset += 4
-            sets.append(set_data)
-        self.server.debug("UserSearchSet: {!r}".format(sets))
-        self.sendAnsUserSearchSet(sets, seq)
+        extra = pati.unpack_extra_info(data)
+        self.server.debug("UserSearchSet: {!r}".format(extra))
+        self.sendAnsUserSearchSet(extra, seq)
 
-    def sendAnsUserSearchSet(self, sets, seq):
+    def sendAnsUserSearchSet(self, extra, seq):
         """AnsUserSearchSet packet.
 
         ID: 66300200
@@ -1245,6 +1241,109 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
         user.capcom_id = pati.String(self.session.capcom_id)
         data += user.pack()
         self.send_packet(PatID4.AnsLayerUserList, data, seq)
+
+    def recvReqLayerUserListHead(self, packet_id, data, seq):
+        """ReqLayerUserListHead packet.
+
+        ID: 64640100
+        JP: レイヤユーザリスト数要求
+        TR: Layer user list count request
+        """
+        unk, = struct.unpack_from(">B", data)
+        layer = pati.unpack_lp2_string(data, 1)
+        offset = 1 + len(layer) + 2
+        first_index, count = struct.unpack_from(">II", data, offset)
+        offset += 8
+        fields = pati.unpack_bytes(data, offset)
+        self.server.debug("LayerUserListHead({}, {!r}, {}, {}, {!r}".format(
+            unk, layer, first_index, count, fields))
+        self.sendAnsLayerUserListHead(unk, layer, first_index, count, fields,
+                                      seq)
+
+    def sendAnsLayerUserListHead(self, unk, layer, first_index, count, fields,
+                                 seq):
+        """AnsLayerUserListHead packet.
+
+        ID: 64640200
+        JP: レイヤユーザリスト数返答
+        TR: Layer user list count response
+        """
+        depth, server_id, unk_id, gate_id, city_id = struct.unpack_from(
+            ">IIHHH", layer)
+        search_payload = (server_id, gate_id, city_id, first_index, count)
+        users = self.session.get_layer_users(*search_payload)
+        self.session.search_payload = search_payload
+        data = struct.pack(">II", first_index, len(users))
+        self.send_packet(PatID4.AnsLayerUserListHead, data, seq)
+
+    def recvReqLayerUserListData(self, packet_id, data, seq):
+        """ReqLayerUserListData packet.
+
+        ID: 64650100
+        JP: レイヤユーザリスト要求
+        TR: Layer user list request
+        """
+        first_index, count = struct.unpack(">II", data)
+        self.sendAnsLayerUserListData(first_index, count, seq)
+
+    def sendAnsLayerUserListData(self, first_index, count, seq):
+        """AnsLayerUserListData packet.
+
+        ID: 64650200
+        JP: レイヤユーザリスト返答
+        TR: Layer user list response
+        """
+        unk = 1
+        search_payload = self.session.search_payload[:-2] + (
+            first_index, count)
+        users = self.session.get_layer_users(*search_payload)
+        self.session.search_payload = None
+        data = struct.pack(">II", unk, len(users))
+        for user in users:
+            layer_user = pati.LayerUserInfo()
+            layer_user.capcom_id = pati.String(user.capcom_id)
+            layer_user.hunter_name = pati.String(user.hunter_name)
+            layer_user.layer_host = pati.Binary(
+                b'\x00\x00\x00\x03'  # Depth?
+                b'\x00\x00\x00\x01'  # Unknown
+                b'\x00\x01'          # Server ID?
+                b'\x00\x01'          # Gate ID?
+                b'\x00\x01'          # City ID?
+            )
+            data += layer_user.pack()
+            # User summary?
+            # Index 1/4 - Weapon (u8) + 16-bit padding + Location (u8)
+            # Index 2/4 - HR (u16) + 16-bit padding
+            # Index 3/4 - ??? (u8[4])
+            # Index 4/4 - ??? (u32)
+            count = 4
+            data += pati.pack_extra_info([
+                (i, 0x03030303)
+                for i in range(3, 5)
+            ] + [
+                (1, 0x03000001),
+                (2, 0x00ff0000)
+            ])
+        self.send_packet(PatID4.AnsLayerUserListData, data, seq)
+
+    def recvReqLayerUserListFoot(self, packet_id, data, seq):
+        """ReqLayerUserListFoot packet.
+
+        ID: 64660100
+        JP: レイヤユーザリスト終了要求
+        TR: Layer user list end of transmission request
+        """
+        self.sendAnsLayerUserListFoot(seq)
+
+    def sendAnsLayerUserListFoot(self, seq):
+        """AnsLayerUserListFoot packet.
+
+        ID: 64660200
+        JP: レイヤユーザリスト終了返答
+        TR: Layer user list end of transmission response
+        """
+        data = b""
+        self.send_packet(PatID4.AnsLayerUserListFoot, data, seq)
 
     def recvReqFriendList(self, packet_id, data, seq):
         """ReqFriendList packet.
@@ -1377,12 +1476,21 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
         The server sends a chat message.
         """
         data = struct.pack(">B", unk1)
-        info.text_color = pati.Long(0xbb3385ff)
-        info.sender_id = pati.String(b"C1I2D3")
-        info.sender_name = pati.String(b"Cid")
+
+        info.text_color = pati.Long(LAYER_CHAT_COLORS[self.session.layer])
+        info.sender_id = pati.String(self.session.capcom_id.encode("utf-8"))
+        info.sender_name = pati.String(self.session.hunter_name.encode("utf-8"))
+
         data += info.pack()
         data += pati.lp2_string(message)
-        self.send_packet(PatID4.NtcLayerChat, data, seq)
+
+        players = self.session.get_layer_players()
+        for player in players:
+            if self.session == player:
+                continue
+
+            pat_handler = self.server.get_pat_handler(player)
+            pat_handler.send_packet(PatID4.NtcLayerChat, data, seq)
 
     def recvReqTell(self, packet_id, data, seq):
         """ReqTell packet.
@@ -1843,6 +1951,8 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
         ID: 64110100
         JP: レイヤ作成要求（番号指定）
         TR: Layer creation request (number specified)
+
+        TODO: Lock it to prevent race-condition.
         """
         number, = struct.unpack(">H", data)
         self.sendAnsLayerCreateHead(number, seq)
@@ -1865,13 +1975,15 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
         TR: Layer creation settings request (number specified)
         """
         number, = struct.unpack_from(">H", data)
-        layer_set = pati.LayerSet.unpack(data, 2)
-        unk = data[2+len(layer_set.pack()):]
+        offset = 2
+        layer_set = pati.LayerSet.unpack(data, offset)
+        offset += len(layer_set.pack())
+        extra = pati.unpack_extra_info(data, offset)
         self.server.debug("LayerCreateSet: {}, {!r}, {!r}".format(
-            number, layer_set, unk))
-        self.sendAnsLayerCreateSet(number, layer_set, unk, seq)
+            number, layer_set, extra))
+        self.sendAnsLayerCreateSet(number, layer_set, extra, seq)
 
-    def sendAnsLayerCreateSet(self, number, layer_set, unk, seq):
+    def sendAnsLayerCreateSet(self, number, layer_set, extra, seq):
         """AnsLayerCreateSet packet.
 
         ID: 64120200
@@ -1879,7 +1991,12 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
         TR: Layer creation settings response
         """
         data = struct.pack(">H", number)
-        self.session.join_city(number)
+        self.session.layer_down(number)
+
+        if self.session.layer == 2:
+            city = self.session.get_city()
+            city.leader = self.session
+
         self.send_packet(PatID4.AnsLayerCreateSet, data, seq)
 
     def recvReqLayerCreateFoot(self, packet_id, data, seq):
@@ -2074,9 +2191,7 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
         data = struct.pack(">II", unk, count)
         for circle in circles:
             data += circle.pack()
-            # A strange struct is also used, try to skip it
-            data += struct.pack(">B", 0) + b"\0" * 2
-
+            data += pati.pack_extra_info([])  # TODO: Figure out the values
         self.send_packet(PatID4.AnsCircleListLayer, data, seq)
 
     def recvReqCircleCreate(self, packet_id, data, seq):
@@ -2087,11 +2202,14 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
         TR: Circle creation request
         """
         circle = pati.CircleInfo.unpack(data)
-        unk = data[len(circle.pack()):]
-        self.server.debug("CircleCreate: {!r}, {}".format(circle, unk))
-        self.sendAnsCircleCreate(circle, unk, seq)
+        extra = pati.unpack_extra_info(data, len(circle.pack()))
+        # Extra fields
+        #  - field_id 0x01: Party capacity
+        #  - field_id 0x02: Quest ID
+        self.server.debug("CircleCreate: {!r}, {!r}".format(circle, extra))
+        self.sendAnsCircleCreate(circle, extra, seq)
 
-    def sendAnsCircleCreate(self, circle, unk, seq):
+    def sendAnsCircleCreate(self, circle, extra, seq):
         """AnsCircleCreate packet.
 
         ID: 65010200
@@ -2110,7 +2228,7 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
         JP: マッチングオプション設定要求
         TR: Match option settings request
         """
-        options = pati.MatchOptionSet.unpack(data)
+        options = pati.CircleUserData.unpack(data)
         self.server.debug("MatchOptionSet: {!r}".format(options))
         self.sendAnsCircleMatchOptionSet(options, seq)
 
@@ -2146,7 +2264,8 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
         unk1, = struct.unpack_from(">I", data)
         unk2 = data[4:4+0xd]
         unk3 = data[4+0xd:]
-        self.server.debug("ReqCircleInfo: {}, {}, {}".format(unk1, unk2, unk3))
+        self.server.debug("ReqCircleInfo: {}, {!r}, {!r}".format(
+            unk1, unk2, unk3))
         self.sendAnsCircleInfo(unk1, unk2, unk3, seq)
 
     def sendAnsCircleInfo(self, unk1, unk2, unk3, seq):
@@ -2182,9 +2301,7 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
         circle.unk_long_0x0b = pati.Long(1)
         self.server.debug("AnsCircleInfo: {!r}".format(circle))
         data += circle.pack()  # TODO: Fill this struct
-
-        # A strange struct is also used, try to skip it
-        data += struct.pack(">B", 0) + b"\0" * 2
+        data += pati.pack_extra_info([])  # TODO: Figure out the values
 
         self.send_packet(PatID4.AnsCircleInfo, data, seq)
         global g_circle_info_set
@@ -2218,21 +2335,23 @@ class PatRequestHandler(SocketServer.StreamRequestHandler):
         JP: サークルデータ設定要求
         TR: Circle data settings request
         """
-        unk1, = struct.unpack_from(">I", data)
-        unk2 = data[4:4+0xd]
-        unk3 = data[4+0xd:]
-        self.server.debug("ReqCircleInfoSet: {}, {}, {}".format(
-            unk1, unk2, unk3))
-        self.sendAnsCircleInfoSet(unk1, unk2, unk3, seq)
+        unk, = struct.unpack_from(">I", data)
+        offset = 4
+        circle = pati.CircleInfo.unpack(data, offset)
+        offset += len(circle.pack())
+        extra = pati.unpack_extra_info(data, offset)
+        self.server.debug("ReqCircleInfoSet: {}, {!r}, {!r}".format(
+            unk, circle, extra))
+        self.sendAnsCircleInfoSet(unk, circle, extra, seq)
 
-    def sendAnsCircleInfoSet(self, unk1, unk2, unk3, seq):
+    def sendAnsCircleInfoSet(self, unk, circle, extra, seq):
         """AnsCircleInfoSet packet.
 
         ID: 65040200
         JP: サークルデータ設定返答
         TR: Circle data settings response
         """
-        data = struct.pack(">I", 0)  # unk1)
+        data = struct.pack(">I", 0)  # unk)
         # self.send_packet(PatID4.NtcCircleInfoSet, g_circle_info_set, seq)
         self.send_packet(PatID4.AnsCircleInfoSet, data, seq)
 
