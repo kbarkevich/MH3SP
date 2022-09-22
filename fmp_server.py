@@ -733,13 +733,15 @@ class FmpRequestHandler(PatRequestHandler):
         """
 
         circle = self.session.get_circle()
-
-        if circle.leader == self.session:
-            self.sendNtcCircleBreak(circle, seq)
-
+        
+        if not circle.departed:
+            if circle.leader == self.session:
+                self.sendNtcCircleBreak(circle, seq)
+        
+        self.notify_circle_departure(circle_index)  # After this, the new host is assigned
         self.session.leave_circle()
 
-        # Delete the quest from the quest board
+        # Delete/update the quest from the quest board
         self.sendNtcCircleListLayerChange(circle, circle_index, seq)
 
         data = struct.pack(">I", circle_index)

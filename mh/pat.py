@@ -2396,6 +2396,35 @@ class PatRequestHandler(SocketServer.StreamRequestHandler, object):
         self.server.layer_broadcast(self.session, PatID4.NtcLayerHost, data,
                                     seq)
 
+    def sendNtcCircleHostHandover(self, circle, new_leader, seq):
+        """NtcCircleHostHandover packet.
+        ID: 65401000
+        JP: サークルのホスト移譲通知	
+        TR: Circle host transfer notice
+        """
+        unk1 = 0x00000000  # 4 byte uint
+        unk2 = 0x00  # 1 byte uint
+        data = struct.pack(">IB", unk1, unk2)
+        data += pati.lp2_string(new_leader.capcom_id)
+        data += pati.lp2_string(new_leader.hunter_name)
+        data += pati.lp2_string(b"")  # Unk max-1 length short array
+        self.server.circle_broadcast(circle, PatID4.NtcCircleHostHandover, data,
+                                    seq, self.session)
+
+    def sendNtcCircleHost(self, circle, new_leader, seq):
+        """NtcCircleHost packet.
+        ID: 65411000
+        JP: サークルのホスト通知	
+        TR: Circle host notification
+        """
+        unk1 = 0x00000000  # 4 byte uint
+        unk2 = 0x00  # 1 byte uint
+        data = struct.pack(">IB", unk1, unk2)
+        data += pati.lp2_string(new_leader.capcom_id)
+        data += pati.lp2_string(new_leader.hunter_name)
+        self.server.circle_broadcast(circle, PatID4.NtcCircleHost, data,
+                                    seq, self.session)
+
     def notify_layer_departure(self):
         if self.session.layer == 2:
             new_host = self.session.try_transfer_city_leadership()
@@ -2404,7 +2433,30 @@ class PatRequestHandler(SocketServer.StreamRequestHandler, object):
         if self.session.layer > 0:
             ntc_data = pati.lp2_string(self.session.capcom_id)
             self.server.layer_broadcast(self.session, PatID4.NtcLayerOut,
-                                        ntc_data, 0)
+                                        ntc_data, 0, self.session)
+
+    def notify_circle_departure(self, circle_index=None):
+        circle = self.session.get_circle()
+        if circle_index is None:
+            for idx, cir in enumerate(self.session.get_city().circles):
+                if cir.players.find_first(capcom_id=self.session.capcom_id) is not None:
+                    circle_index = idx+1
+                    break
+        assert circle_index is not None
+        new_host = self.session.try_transfer_circle_leadership()
+        if new_host:
+            self.sendNtcCircleHostHandover(circle, new_host, 0)
+            self.sendNtcCircleHost(circle, new_host, 0)
+        if circle.departed:
+            ntc_data = b""
+            ntc_data += struct.pack(">I", circle_index)
+            ntc_data += pati.lp2_string(self.session.capcom_id)
+            player_index = circle.players.index(self.session)+1
+            unk1 = 0x00  # unk1 flag
+            ntc_data += struct.pack(">BB", player_index, unk1)
+
+            self.server.circle_broadcast(circle, PatID4.NtcCircleLeave,
+                                        ntc_data, 0, self.session)
 
     def finish(self):
         self.finished = True
@@ -2470,6 +2522,11 @@ class PatRequestHandler(SocketServer.StreamRequestHandler, object):
         except Exception as e:
             self.server.error(traceback.format_exc())
             self.send_error("{}: {}".format(type(e).__name__, str(e)))
+
+        try:
+            self.notify_circle_departure()
+        except Exception:
+            self.server.error(traceback.format_exc())
 
         try:
             self.notify_layer_departure()
