@@ -2446,7 +2446,7 @@ class PatRequestHandler(SocketServer.StreamRequestHandler, object):
         new_host = self.session.try_transfer_circle_leadership()
         if new_host:
             self.sendNtcCircleHostHandover(circle, new_host, 0)
-            self.sendNtcCircleHost(circle, new_host, 0)
+            #self.sendNtcCircleHost(circle, new_host, 0)
         if circle.departed:
             ntc_data = b""
             ntc_data += struct.pack(">I", circle_index)
