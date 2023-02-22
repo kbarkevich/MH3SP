@@ -23,7 +23,7 @@ import struct
 import traceback
 from datetime import datetime, timedelta
 
-from other.utils import Logger, get_config, get_ip, hexdump
+from other.utils import Logger, get_config, get_ip, hexdump, SenderQueue
 
 import mh.pat_item as pati
 import mh.server as server
@@ -2540,19 +2540,25 @@ class PatRequestHandler(server.BasicPatHandler):
 
     def notify_circle_leave(self, circle_index, seq):
         circle = self.session.get_circle()
-        with circle.lock():
+        with circle.lock(), SenderQueue() as senders:
             self.sendNtcCircleLeave(circle, circle_index, seq)
             if circle.leader == self.session:
                 if circle.departed:
                     new_host_index, new_host = \
                         self.session.try_transfer_circle_leadership()
                     if new_host:
-                        self.sendNtcCircleHost(circle, new_host, new_host_index,
-                                               seq)
+                        senders.append(
+                            lambda circle=circle: self.sendNtcCircleHost(circle,
+                                                   new_host, new_host_index, seq)
+                        )
                 else:
-                    self.sendNtcCircleBreak(circle, seq)
+                    senders.append(
+                        lambda circle=circle: self.sendNtcCircleBreak(circle, seq)
+                    )
             self.session.leave_circle()
-            self.sendNtcCircleListLayerChange(circle, circle_index, seq)
+            senders.append(
+                lambda circle=circle: self.sendNtcCircleListLayerChange(circle, circle_index, seq)
+            )
 
     def on_exception(self, e):
         # type: (Exception) -> None

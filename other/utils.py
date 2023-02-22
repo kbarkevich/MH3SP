@@ -78,6 +78,18 @@ class Logger(object):
         return self.logger.critical(msg, *args, **kwargs)
 
 
+class SenderQueue(list):
+    def __init__(self, iterable=[]):
+        super(SenderQueue, self).__init__(str(item) for item in iterable)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        for sender in self:
+            sender()
+
+
 class GenericUnpacker(object):
     """Generic unpacker that maps unpack and pack functions.
 

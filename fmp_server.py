@@ -23,7 +23,7 @@ from mh.database import Players
 import mh.pat_item as pati
 from mh.constants import *
 from mh.pat import PatRequestHandler, PatServer
-from other.utils import hexdump, server_base, server_main
+from other.utils import hexdump, server_base, server_main, SenderQueue
 
 
 class FmpServer(PatServer):
@@ -487,28 +487,34 @@ class FmpRequestHandler(PatRequestHandler):
         circle_info = pati.CircleInfo.unpack(data, 4)
 
         city = self.session.get_city()
-        with city.lock():
+        with city.lock(), SenderQueue() as senders:
             if circle_index-1 >= len(city.circles):
-                self.sendAnsAlert(
-                    PatID4.AnsCircleJoin,
-                    "<LF=8><BODY><CENTER>Invalid Quest Slot<END>",
-                    seq
+                senders.append(
+                    lambda: self.sendAnsAlert(
+                        PatID4.AnsCircleJoin,
+                        "<LF=8><BODY><CENTER>Invalid Quest Slot<END>",
+                        seq
+                    )
                 )
                 return
 
             circle = city.circles[circle_index-1]
-        with circle.lock():
+        with circle.lock(), SenderQueue() as senders:
             if circle.has_password() and ("password" not in circle_info or
                                           pati.unpack_string(circle_info.password)
                                           != circle.password):
-                self.sendAnsAlert(PatID4.AnsCircleJoin,
+                senders.append(
+                    lambda: self.sendAnsAlert(PatID4.AnsCircleJoin,
                                   "<LF=8><BODY><CENTER>Wrong Password!<END>", seq)
+                )
                 return
 
             player_index = circle.players.add(self.session)
             if player_index == -1:
-                self.sendAnsAlert(PatID4.AnsCircleJoin,
+                senders.append(
+                    lambda: self.sendAnsAlert(PatID4.AnsCircleJoin,
                                   "<LF=8><BODY><CENTER>Quest is full!<END>", seq)
+                )
                 return
 
         self.session.join_circle(circle_index-1)
@@ -592,13 +598,15 @@ class FmpRequestHandler(PatRequestHandler):
         city = self.session.get_city()
         circle = city.circles[circle_index-1]
 
-        with circle.lock():
+        with circle.lock(), SenderQueue() as senders:
             leader_index = circle.players.index(circle.leader)
             if leader_index == -1:
-                self.sendAnsAlert(
-                    PatID4.AnsCircleHost,
-                    "<LF=8><BODY><CENTER>Unknown Quest Leader<END>",
-                    seq
+                senders.append(
+                    lambda: self.sendAnsAlert(
+                        PatID4.AnsCircleHost,
+                        "<LF=8><BODY><CENTER>Unknown Quest Leader<END>",
+                        seq
+                    )
                 )
                 return
 
@@ -812,7 +820,7 @@ class FmpRequestHandler(PatRequestHandler):
         TR: Matching start notification
         """
         circle = self.session.get_circle()
-        with circle.lock():
+        with circle.lock(), SenderQueue() as senders:
             circle.departed = True
 
             count = 0
@@ -830,21 +838,31 @@ class FmpRequestHandler(PatRequestHandler):
                     # Client ignore field
                     ntc_circle_kick = struct.pack(">B", 0) + pati.lp2_string('')
                     handler = self.server.get_pat_handler(player)
-                    handler.try_send_packet(PatID4.NtcCircleKick, ntc_circle_kick,
+                    senders.append(
+                        lambda ntc_circle_kick=ntc_circle_kick, handler=handler: handler.try_send_packet(PatID4.NtcCircleKick,
+                                            ntc_circle_kick, seq)
+                    )
+                    senders.append(
+                        lambda player=player, handler=handler: handler.notify_circle_leave(player.local_info['circle_id'] + 1,
                                             seq)
-                    handler.notify_circle_leave(player.local_info['circle_id'] + 1, seq)
+                    )
                     changed = True
 
             data = struct.pack(">I", count)+data
             data = struct.pack(">H", len(data))+data
             data += struct.pack(">I", 1)  # Field??
 
-            self.server.circle_broadcast(circle, PatID4.NtcCircleMatchStart, data,
+            senders.append(
+                lambda circle=circle, data=data: self.server.circle_broadcast(circle, PatID4.NtcCircleMatchStart, data,
                                          seq)
+            )
 
             if changed:
                 circle_index = circle.parent.circles.index(circle) + 1
-                self.sendNtcCircleListLayerChange(circle, circle_index, seq)
+                senders.append(
+                    lambda circle=circle, circle_index=circle_index: self.sendNtcCircleListLayerChange(circle, circle_index, seq)
+                )
+        
 
     def recvReqCircleMatchEnd(self, packet_id, data, seq):
         """ReqCircleMatchEnd packet.
