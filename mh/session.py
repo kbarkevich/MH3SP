@@ -292,7 +292,7 @@ class Session(object):
             return None
 
         city = self.get_city()
-        with city.lock():
+        with city.lock(write=True):
             if city.leader != self:
                 return None
 
@@ -309,7 +309,7 @@ class Session(object):
             return None, None
 
         circle = self.get_circle()
-        with circle.lock(), circle.players.lock():
+        with circle.lock(write=True), circle.players.lock(write=False):
             if circle.leader != self or circle.get_population() <= 1 or not circle.departed:
                 return None, None
             for i, player in circle.players:
@@ -344,7 +344,7 @@ class Session(object):
     def leave_circle(self):
         # TODO: Move this to the database
         circle = self.get_circle()
-        with circle.lock():
+        with circle.lock(write=True):
             self.local_info['circle_id'] = None
             self.state = SessionState.CITY
 

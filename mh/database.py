@@ -21,7 +21,8 @@
 
 import random
 import time
-from threading import RLock
+from threading import Condition, RLock
+from contextlib import contextmanager
 
 CHARSET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
@@ -53,18 +54,61 @@ class LayerState(object):
 
 
 class Lockable(object):
+    """
+    (Based on https://www.oreilly.com/library/view/python-cookbook/0596001673/ch06s04.html)
+
+    Allows many simultaneous "read locks," but only
+    one "write lock."
+
+    This implementation uses a reentrant lock that permits
+    recursive locking. Recursive locking is permitted to happen when
+    any of the following are true:
+        - The inner lock is a "read" lock
+        - The inner lock is of the same type as all of the outer locks
+
+    This effectively means that locks can go from write to read, but not
+    the other way around. If any write locks are initiated, all outer
+    locks must also be write locks.
+    """
+
     def __init__(self):
-        self._lock = RLock()
+        self._read_ready = Condition(RLock())
+        self._readers = 0
 
-    def lock(self):
-        return self
+    @contextmanager
+    def lock(self, write):
+        """To be used in a "with" statement."""
+        if write:
+            # Acquire Write
+            self._read_ready.acquire()
+            while self._readers > 0:
+                self._read_ready.wait()
 
-    def __enter__(self):
-        # Returns True if lock was acquired, False otherwise
-        return self._lock.acquire()
+            try:
+                yield self
+            finally:
+                # Release write
+                self._read_ready.release()
+                
+        else:
+            # Acquire Read
+            self._read_ready.acquire()
+            try:
+                self._readers += 1
+            finally:
+                self._read_ready.release()
 
-    def __exit__(self, *args):
-        self._lock.release()
+            try:
+                yield self
+            finally:
+                # Release Read
+                self._read_ready.acquire()
+                try:
+                    self._readers -= 1
+                    if not self._readers:
+                        self._read_ready.notifyAll()
+                finally:
+                    self._read_ready.release()
 
 
 class Players(Lockable):
@@ -82,7 +126,7 @@ class Players(Lockable):
         return len(self.slots)
 
     def add(self, item):
-        with self.lock():
+        with self.lock(write=True):
             if self.used >= len(self.slots):
                 return -1
 
@@ -103,7 +147,7 @@ class Players(Lockable):
     def remove(self, item):
         assert item is not None, "Item != None"
 
-        with self.lock():
+        with self.lock(write=True):
             if self.used < 1:
                 return False
 
@@ -135,7 +179,7 @@ class Players(Lockable):
         return -1
 
     def clear(self):
-        with self.lock():
+        with self.lock(write=True):
             for i in range(self.get_capacity()):
                 self.slots[i] = None
 
@@ -205,11 +249,11 @@ class Circle(Lockable):
         return self.password is not None
 
     def reset_players(self, capacity):
-        with self.lock():
+        with self.lock(write=True):
             self.players = Players(capacity)
 
     def reset(self):
-        with self.lock():
+        with self.lock(write=True):
             self.leader = None
             self.reset_players(4)
             self.departed = False
@@ -265,26 +309,26 @@ class City(Lockable):
         return pathname
 
     def get_first_empty_circle(self):
-        with self.lock():
+        with self.lock(write=False):
             for index, circle in enumerate(self.circles):
                 if circle.is_empty():
                     return circle, index
         return None, None
 
     def get_circle_for(self, leader_session):
-        with self.lock():
+        with self.lock(write=False):
             for index, circle in enumerate(self.circles):
                 if circle.leader == leader_session:
                     return circle, index
         return None, None
 
     def clear_circles(self):
-        with self.lock():
+        with self.lock(write=True):
             for circle in self.circles:
                 circle.reset()
 
     def reserve(self, reserve):
-        with self.lock():
+        with self.lock(write=True):
             if reserve:
                 self.reserved = time.time()
             else:
@@ -542,7 +586,7 @@ class TempDatabase(object):
 
     def reserve_city(self, server_id, gate_id, index, reserve):
         city = self.get_city(server_id, gate_id, index)
-        with city.lock():
+        with city.lock(write=True):
             reserved_time = city.reserved
             if reserve and reserved_time and \
                time.time()-reserved_time < RESERVE_DC_TIMEOUT:
@@ -585,14 +629,14 @@ class TempDatabase(object):
     def create_city(self, session, server_id, gate_id, index,
                     settings, optional_fields):
         city = self.get_city(server_id, gate_id, index)
-        with city.lock():
+        with city.lock(write=True):
             city.optional_fields = optional_fields
             city.leader = session
         return city
 
     def join_city(self, session, server_id, gate_id, index):
         city = self.get_city(server_id, gate_id, index)
-        with city.lock():
+        with city.lock(write=True):
             city.parent.players.remove(session)
             city.players.add(session)
             session.local_info["city_name"] = city.name
@@ -603,7 +647,7 @@ class TempDatabase(object):
         city = self.get_city(session.local_info["server_id"],
                              session.local_info["gate_id"],
                              session.local_info["city_id"])
-        with city.lock():
+        with city.lock(write=True):
             city.parent.players.add(session)
             city.players.remove(session)
             if not city.get_population():
@@ -615,7 +659,7 @@ class TempDatabase(object):
         cities = []
 
         def match_city(city, fields):
-            with city.lock():
+            with city.lock(write=False):
                 return all((
                     field in city.optional_fields
                     for field in fields

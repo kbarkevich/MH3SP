@@ -74,18 +74,20 @@ class PatServer(server.BasicPatServer, Logger):
 
     def layer_broadcast(self, session, packet_id, data, seq,
                         exclude_self=True):
-        for _, player in session.get_layer_players():
-            if exclude_self and player == session:
-                continue
+        players = session.get_layer_players()
+        with players.lock(write=False):
+            for _, player in players:
+                if exclude_self and player == session:
+                    continue
 
-            handler = self.get_pat_handler(player)
-            if handler:
-                handler.try_send_packet(packet_id, data, seq)
+                handler = self.get_pat_handler(player)
+                if handler:
+                    handler.try_send_packet(packet_id, data, seq)
 
     def circle_broadcast(self, circle, packet_id, data, seq,
                          session=None):
         handlers = []
-        with circle.lock(), circle.players.lock():
+        with circle.lock(write=False), circle.players.lock(write=False):
             for _, player in circle.players:
                 if session and player == session:
                     continue
@@ -2242,7 +2244,7 @@ class PatRequestHandler(server.BasicPatHandler):
         cities = self.search_data
         data = struct.pack(">II", 0, len(cities))
         for i, city in enumerate(cities):
-            with city.lock():
+            with city.lock(write=False):
                 layer_data = pati.LayerData()
                 layer_data.unk_long_0x01 = pati.Long(i)
                 layer_data.layer_host = pati.Binary(
@@ -2260,7 +2262,7 @@ class PatRequestHandler(server.BasicPatHandler):
                 layer_data.assert_fields(self.search_info["layer_fields"])
                 data += layer_data.pack()
                 data += pati.pack_optional_fields(city.optional_fields)
-                with city.players.lock():
+                with city.players.lock(write=False):
                     data += struct.pack(">I", len(city.players))
                     for _, player in city.players:
                         layer_user = pati.LayerUserInfo()
@@ -2540,7 +2542,7 @@ class PatRequestHandler(server.BasicPatHandler):
 
     def notify_circle_leave(self, circle_index, seq):
         circle = self.session.get_circle()
-        with circle.lock():
+        with circle.lock(write=True):
             self.sendNtcCircleLeave(circle, circle_index, seq)
             if circle.leader == self.session:
                 if circle.departed:

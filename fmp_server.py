@@ -112,7 +112,7 @@ class FmpRequestHandler(PatRequestHandler):
         TR: Layer sync user list response
         """
         players = self.session.get_layer_players()
-        with players.lock():
+        with players.lock(write=False):
             count = len(players)
             data = struct.pack(">I", count)
 
@@ -245,7 +245,7 @@ class FmpRequestHandler(PatRequestHandler):
         TR: Binary transmission for layer users (specify the other party)
         """
         city = self.session.get_city()
-        with city.lock():
+        with city.lock(write=False):
             partner_session = city.players.find_by_capcom_id(partner)
         if partner_session is None:
             return
@@ -337,9 +337,9 @@ class FmpRequestHandler(PatRequestHandler):
         data = b''
 
         city = self.session.get_city()
-        with city.lock():
+        with city.lock(write=False):
             for i, circle in enumerate(city.circles):
-                with circle.lock():
+                with circle.lock(write=False):
                     if not circle.is_empty():
                         data += pati.CircleInfo.pack_from(circle, i+1)
                         count += 1
@@ -372,7 +372,7 @@ class FmpRequestHandler(PatRequestHandler):
             )
             return
 
-        with circle.lock():
+        with circle.lock(write=True):
             circle.leader = self.session
 
             if "password" in circle_info:
@@ -487,7 +487,7 @@ class FmpRequestHandler(PatRequestHandler):
         circle_info = pati.CircleInfo.unpack(data, 4)
 
         city = self.session.get_city()
-        with city.lock():
+        with city.lock(write=False):
             if circle_index-1 >= len(city.circles):
                 self.sendAnsAlert(
                     PatID4.AnsCircleJoin,
@@ -497,7 +497,7 @@ class FmpRequestHandler(PatRequestHandler):
                 return
 
             circle = city.circles[circle_index-1]
-        with circle.lock():
+        with circle.lock(write=True):
             if circle.has_password() and ("password" not in circle_info or
                                           pati.unpack_string(circle_info.password)
                                           != circle.password):
@@ -559,7 +559,7 @@ class FmpRequestHandler(PatRequestHandler):
         """
         circle = self.session.get_circle()
 
-        with circle.lock(), circle.players.lock():
+        with circle.lock(write=False), circle.players.lock(write=False):
             data = struct.pack(">I", circle.get_population())
             for i, player in circle.players:
                 circle_user_data = pati.CircleUserData()
@@ -592,7 +592,7 @@ class FmpRequestHandler(PatRequestHandler):
         city = self.session.get_city()
         circle = city.circles[circle_index-1]
 
-        with circle.lock():
+        with circle.lock(write=False):
             leader_index = circle.players.index(circle.leader)
             if leader_index == -1:
                 self.sendAnsAlert(
@@ -673,7 +673,7 @@ class FmpRequestHandler(PatRequestHandler):
         """
         city = self.session.get_city()
         circle = city.circles[circle_index-1]
-        with circle.lock():
+        with circle.lock(write=False):
             partner_session = circle.players.find_by_capcom_id(partner)
         if partner_session is None:
             return
@@ -812,7 +812,7 @@ class FmpRequestHandler(PatRequestHandler):
         TR: Matching start notification
         """
         circle = self.session.get_circle()
-        with circle.lock():
+        with circle.lock(write=True):
             circle.departed = True
 
             count = 0

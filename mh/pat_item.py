@@ -693,7 +693,7 @@ class CircleInfo(PatData):
 
     @staticmethod
     def pack_from(circle, circle_index):
-        with circle.lock():
+        with circle.lock(write=False):
             circle_info = CircleInfo()
             circle_info.index = Long(circle_index)
 
