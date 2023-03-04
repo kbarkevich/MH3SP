@@ -1,0 +1,66 @@
+body {
+	height: 100vh;
+	-webkit-background-size: cover;
+	-moz-background-size: cover;
+	-o-background-size: cover;
+	background-size: cover;
+	background-repeat: no-repeat;
+	background-position: center;
+	background-origin: center;
+	background-size: fixed;
+}
+
+h1 {
+    border: 2px #eee solid;
+    color: brown;
+    text-align: center;
+    padding: 10px;
+}
+
+.navbar-nav li:hover {
+	transition: 0.3s;
+	transition: 0.3s;
+	box-shadow: 0px 4px 2px 0px #aaaaaa;
+	cursor: pointer;
+}
+
+.bg-image {
+	background-color: rgba(0, 0, 0, 0.0);
+	background-size: cover;
+	background-repeat: no-repeat;
+}
+
+.slot:hover {
+	cursor: pointer;
+}
+.slot:hover .arrow-right{ 
+	display: block;
+}
+.slot:hover .arrow-left{ 
+	display: block;
+}
+
+.slot-generic {
+	position: relative;
+	aspect-ratio: 250 / 40;
+}
+.slot-generic-content {
+	position: absolute;
+	padding-left: 10%;
+	top: 50%;
+	transform: translate(0%, -50%);
+}
+
+.arrow-right {
+	position: absolute;
+	height: 100%;
+	top: 50%;
+	transform: translate(-100%, -50%);
+	display: none;
+}
+
+.letterbox{
+	padding-inline-start: 0;
+	margin-top: 0.3rem;
+	margin-bottom: 0.3rem;
+}

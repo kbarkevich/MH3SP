@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    {% block title %}
+	{{ generator(server['title'], 40) | safe }}
+	{% endblock %}
+    <span class="badge badge-secondary">
+		{{ generator(server['population'] ~ " / " ~ server['capacity'], 15) | safe }}
+	</span>
+	{{ generator(server['description'], 20) | safe }}
+	{% for gate in gates %}
+        <a href="#">
+			{{ generator(gate['title'], 25) | safe }}
+        </a>
+        <span class="badge badge-dark">
+			{{ generator(gate['population'] ~ " / " ~ gate['capacity'], 12) | safe }}
+		</span>
+        <hr>
+    {% endfor %}
+{% endblock %}

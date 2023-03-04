@@ -28,6 +28,7 @@ import fmp_server as FMP
 import rfp_server as RFP
 
 from other.utils import create_server_from_base
+from webserver.webserver import WebServer
 
 
 def create_servers(silent=False, debug_mode=False):
@@ -47,10 +48,12 @@ def main(args):
     """Master server main function."""
     servers, has_ui = create_servers(silent=args.silent,
                                      debug_mode=args.debug_mode)
+    webserver = WebServer('localhost', 5000)
     threads = [
         threading.Thread(target=server.serve_forever)
         for server in servers
     ]
+    threads.append(threading.Thread(target=webserver.run))
     for thread in threads:
         thread.start()
 
