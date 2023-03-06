@@ -1,11 +1,14 @@
 {% extends 'base.html' %}
 
+{% block title %}MH3SP{% endblock %}
+{% block header %}
+	<ul class="d-flex justify-content-center flex-nowrap letterbox">
+		{{ generator("Monster Hunter 3 (Tri) Server Project", 40) | safe }}
+	</ul>
+{% endblock %}
+
 {% block content %}
-    {% block title %}
-		<ul class="d-flex justify-content-center flex-nowrap letterbox">
-			{{ generator("Monster Hunter 3 (Tri) Server Project", 40) | safe }}
-		</ul>
-	{% endblock %}
+    
 	<ul class="list-group list-group-vertical">
 	{% for server in servers %}
 		<div class="bg-image slot slot-generic" style="background-image: url({{ url_for('static', filename='img/MH3_slotgeneric.png') }})" onclick="location.href='{{url_for('server', server_id=server['id'])}}'">

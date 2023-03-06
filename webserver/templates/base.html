@@ -12,22 +12,23 @@
     <title>{% block title %} {% endblock %}</title>
   </head>
   <body style="background-image: url({{ url_for('static', filename='img/MH3_background.png') }})">
-	<nav class="navbar navbar-expand-md navbar-light bg-light">
-        <a class="navbar-brand" href="{{ url_for('index')}}">MH3SP</a>
+	<nav class="navbar navbar-expand-md navbar-light bg-transparent border-bottom">
+        <a class="navbar-brand text-light" href="{{ url_for('index')}}">{{ generator("MH3SP", 20) | safe }}</a>
         <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
             <span class="navbar-toggler-icon"></span>
         </button>
         <div class="collapse navbar-collapse" id="navbarNav">
             <ul class="navbar-nav">
 				<li class="nav-item active">
-					<a class="nav-link hover-shadow " href="#">About</a>
+					<a class="nav-link hover-shadow text-light" href="#">{{ generator("About", 15) | safe }}</a>
 				</li>
 				<li class="nav-item active">
-					<a class="nav-link hover-shadow " href="https://github.com/sepalani/MH3SP">GitHub</a>
+					<a class="nav-link hover-shadow text-light" href="https://github.com/sepalani/MH3SP">{{ generator("GitHub", 15) | safe }}</a>
 				</li>
             </ul>
         </div>
     </nav>
+	{% block header %}{% endblock %}
     <div class="container">
         {% block content %} {% endblock %}
     </div>

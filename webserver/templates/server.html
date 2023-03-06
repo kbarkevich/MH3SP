@@ -1,9 +1,11 @@
 {% extends 'base.html' %}
 
-{% block content %}
-    {% block title %}
+{% block title %}{{server['title']}}{% endblock %}
+{% block header %}
 	{{ generator(server['title'], 40) | safe }}
-	{% endblock %}
+{% endblock %}
+
+{% block content %}
     <span class="badge badge-secondary">
 		{{ generator(server['population'] ~ " / " ~ server['capacity'], 15) | safe }}
 	</span>
