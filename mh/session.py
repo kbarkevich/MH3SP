@@ -20,15 +20,16 @@
 """
 
 import struct
+import time
 
 import mh.database as db
-import mh.state as state
+from mh.state import get_instance, Players, LayerState
 import mh.pat_item as pati
 
 from other.utils import to_bytearray, to_str
 
 DB = db.get_instance()
-STATE = state.get_instance()
+STATE = get_instance()
 
 
 class SessionState:
@@ -71,19 +72,79 @@ class Session(object):
         self.state = SessionState.UNKNOWN
         self.binary_setting = b""
         self.search_payload = None
+        self.loaded_server_ids = {}
         self.hunter_info = pati.HunterSettings()
 
-    def get(self, connection_data):
+    def serialize(self):
+        pdict = {
+            "pat_ticket": self.pat_ticket,
+            #"local_info_": self.local_info,
+            "local_info_server_id": self.local_info["server_id"],
+            "local_info_server_name": self.local_info["server_name"],
+            "local_info_gate_id": self.local_info["gate_id"],
+            "local_info_gate_name": self.local_info["gate_name"],
+            "local_info_city_id": self.local_info["city_id"],
+            "local_info_city_name": self.local_info["city_name"],
+            "local_info_city_size": self.local_info["city_size"],
+            "local_info_city_capacity": self.local_info["city_capacity"],
+            "local_info_circle_id": self.local_info["circle_id"],
+            "online_support_code": self.online_support_code,
+            "capcom_id": self.capcom_id,
+            "hunter_name": self.hunter_name,
+            "hunter_stats": self.hunter_stats,
+            "layer": self.layer,
+            "state": self.state,
+            "binary_setting": self.binary_setting,
+            "hunter_info": self.hunter_info.pack().decode(encoding='ISO-8859-1')
+        }
+        return pdict
+
+    @staticmethod
+    def deserialize(pdict):
+        session = Session(None)
+        session.pat_ticket = str(pdict["pat_ticket"]) if pdict["pat_ticket"] else pdict["pat_ticket"]
+        session.local_info["server_id"] = int(pdict["local_info_server_id"]) if pdict["local_info_server_id"] else pdict["local_info_server_id"]
+        session.local_info["server_name"] = str(pdict["local_info_server_name"]) if pdict["local_info_server_name"] else pdict["local_info_server_name"]
+        session.local_info["gate_id"] = int(pdict["local_info_gate_id"]) if pdict["local_info_gate_id"] else pdict["local_info_gate_id"]
+        session.local_info["gate_name"] = str(pdict["local_info_gate_name"]) if pdict["local_info_gate_name"] else pdict["local_info_gate_name"]
+        session.local_info["city_id"] = int(pdict["local_info_city_id"]) if pdict["local_info_city_id"] else pdict["local_info_city_id"]
+        session.local_info["city_name"] = str(pdict["local_info_city_name"]) if pdict["local_info_city_name"] else pdict["local_info_city_name"]
+        session.local_info["city_size"] = int(pdict["local_info_city_size"]) if pdict["local_info_city_size"] else pdict["local_info_city_size"]
+        session.local_info["city_capacity"] = int(pdict["local_info_city_capacity"]) if pdict["local_info_city_capacity"] else pdict["local_info_city_capacity"]
+        session.local_info["circle_id"] = int(pdict["local_info_circle_id"]) if pdict["local_info_circle_id"] else pdict["local_info_circle_id"]
+        session.online_support_code = str(pdict["online_support_code"]) if pdict["online_support_code"] else pdict["online_support_code"]
+        session.capcom_id = str(pdict["capcom_id"])
+        session.hunter_name = str(pdict["hunter_name"])
+        session.hunter_stats = pdict["hunter_stats"]
+        session.layer = int(pdict["layer"])
+        session.state = int(pdict["state"])
+        session.binary_setting = pdict["binary_setting"]
+        h_settings = bytearray(pdict["hunter_info"], encoding='ISO-8859-1')
+        session.hunter_info = pati.HunterSettings().unpack(h_settings, len(h_settings))
+        return session
+
+    def get(self, connection_data, wait_for_session=False):
         """Return the session associated with the connection data, if any."""
-        if hasattr(connection_data, "pat_ticket"):
+        has_pat_ticket = hasattr(connection_data, "pat_ticket")
+        if has_pat_ticket:
             self.pat_ticket = to_str(
                 pati.unpack_binary(connection_data.pat_ticket)
             )
+        if wait_for_session:
+            if has_pat_ticket:
+                session = STATE.get_session(self.pat_ticket)
+                while session is None:
+                    time.sleep(1)
+                    session = STATE.get_session(self.pat_ticket)
+            else:
+                session = self
+        else:
+            session = STATE.get_session(self.pat_ticket) or self
+
         if hasattr(connection_data, "online_support_code"):
             self.online_support_code = to_str(
                 pati.unpack_string(connection_data.online_support_code)
             )
-        session = STATE.get_session(self.pat_ticket) or self
         if session != self:
             assert session.connection is None, "Session is already in use"
             session.connection = self.connection
@@ -128,11 +189,47 @@ class Session(object):
         STATE.new_pat_ticket(self)
         return to_bytearray(self.pat_ticket)
 
+    def get_fmp_version(self):
+        return STATE.get_servers_version()
+
     def get_users(self, first_index, count):
         return STATE.get_users(self, first_index, count)
 
     def use_user(self, index, name):
         STATE.use_user(self, index, name)
+
+    def server_index_exists(self, index):
+        try:
+            if index in self.loaded_server_ids:
+                self.recall_server(index)
+                return True
+            else:
+                return False
+        except AssertionError:
+            return False
+
+    def preserve_server_ids(self, first_index, count):
+        server_ids, servers = STATE.get_servers(include_ids=True)
+        if first_index-1 + count > len(server_ids):
+            count = len(server_ids) - (first_index - 1)
+        assert first_index <= len(server_ids)
+        server_ids = server_ids[first_index-1:first_index-1+count]
+        self.loaded_server_ids = {}
+        for i, server_id in enumerate(server_ids):
+            self.loaded_server_ids[first_index+i] = server_id
+
+    def recall_servers(self, first_index, count):
+        server_ids, servers = STATE.get_servers(include_ids=True)
+        servers = []
+        for i in range(first_index, first_index+count):
+            servers.append(self.recall_server(i))
+        return servers
+
+    def recall_server(self, index):
+        return STATE.get_server(self.loaded_server_ids[index])
+
+    def recall_server_id(self, index):
+        return self.loaded_server_ids[index]
 
     def get_servers(self):
         return STATE.get_servers()
@@ -249,7 +346,7 @@ class Session(object):
         return users[start:start+count]
 
     def leave_server(self):
-        STATE.leave_server(self, self.local_info["server_id"])
+        STATE.leave_server(self)
 
     def get_gates(self):
         return STATE.get_gates(self.local_info["server_id"])
@@ -267,7 +364,7 @@ class Session(object):
                              self.local_info["gate_id"])
 
     def is_city_empty(self, city_id):
-        return STATE.get_city(self.local_info["server_id"], self.local_info["gate_id"], city_id).get_state() == state.LayerState.EMPTY
+        return STATE.get_city(self.local_info["server_id"], self.local_info["gate_id"], city_id).get_state() == LayerState.EMPTY
 
     def reserve_city(self, city_id, reserve):
         return STATE.reserve_city(self.local_info["server_id"], self.local_info["gate_id"], city_id, reserve)

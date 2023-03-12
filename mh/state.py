@@ -1,7 +1,9 @@
+#! /usr/bin/env python
+# -*- coding: utf-8 -*-
 """Monster Hunter state module.
 
     Monster Hunter 3 Server Project
-    Copyright (C) 2023  Sepalani, Ze SpyRo
+    Copyright (C) 2023  Sepalani
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -17,10 +19,21 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-
-from mh import database 
+from mh import database
 import time
-from threading import RLock
+from threading import RLock, Event
+
+
+try:
+    # Python 3
+    import selectors
+except ImportError:
+    # Python 2
+    import externals.selectors2 as selectors
+
+
+RESERVE_DC_TIMEOUT = 40.0
+
 
 class ServerType(object):
     OPEN = 1
@@ -154,6 +167,21 @@ class Players(Lockable):
 
             yield i, v
 
+    def serialize(self):
+        pdict = {
+            "slots": [(p.serialize() if p is not None else None) for p in self.slots],
+            "used": self.used
+        }
+        return pdict
+
+    @staticmethod
+    def deserialize(pdict, parent):
+        from mh.session import Session
+        players = Players(len(pdict["slots"]))
+        players.slots = [(Session.deserialize(p) if p is not None else None) for p in pdict["slots"]]
+        players.used = pdict["used"]
+        return players
+
 
 class Circle(Lockable):
     def __init__(self, parent):
@@ -202,6 +230,34 @@ class Circle(Lockable):
             self.remarks = None
 
             self.unk_byte_0x0e = 0
+
+    def serialize(self):
+        cdict = {
+            "parent": None,
+            "leader": self.leader.serialize() if self.leader is not None else None,
+            "players": self.players.serialize(),
+            "departed": self.departed,
+            "quest_id": self.quest_id,
+            "embarked": self.embarked,
+            "password": self.password,
+            "remarks": self.remarks,
+            "unk_byte_0x0e": self.unk_byte_0x0e
+        }
+        return cdict
+
+    @staticmethod
+    def deserialize(cdict, parent):
+        from mh.session import Session
+        circle = Circle(parent)
+        circle.leader = Session.deserialize(cdict["leader"]) if cdict["leader"] is not None else None
+        circle.players = Players.deserialize(cdict["players"], circle)
+        circle.departed = cdict["departed"]
+        circle.quest_id = cdict["quest_id"]
+        circle.embarked = cdict["embarked"]
+        circle.password = cdict["password"]
+        circle.remarks = cdict["remarks"]
+        circle.unk_byte_0x0e = cdict["unk_byte_0x0e"]
+        return circle
 
 
 class City(Lockable):
@@ -273,6 +329,36 @@ class City(Lockable):
             else:
                 self.reserved = None
 
+    def get_all_players(self):
+        with self.players.lock():
+            return [p for _, p in self.players]
+
+    def serialize(self):
+        cdict = {
+            "name": self.name,
+            "parent": None,
+            "state": self.state,
+            "players": self.players.serialize(),
+            "optional_fields": self.optional_fields,
+            "leader": self.leader.serialize() if self.leader is not None else None,
+            "reserved": self.reserved,
+            "circles": [c.serialize() for c in self.circles]
+        }
+        return cdict
+
+    @staticmethod
+    def deserialize(cdict, parent):
+        from mh.session import Session
+        city = City(str(cdict["name"]) if cdict["name"] is not None else cdict["name"], cdict["parent"])
+        city.parent = parent
+        city.state = cdict["state"]
+        city.players = Players.deserialize(cdict["players"], parent)
+        city.optional_fields = cdict["optional_fields"]
+        city.leader = Session.deserialize(cdict["leader"]) if cdict["leader"] is not None else None
+        city.reserved = cdict["reserved"]
+        city.circles = [Circle.deserialize(c, city) for c in cdict["circles"]]
+        return city
+
 
 class Gate(object):
     LAYER_DEPTH = 2
@@ -306,6 +392,32 @@ class Gate(object):
         else:
             return LayerState.FULL
 
+    def get_all_players(self):
+        players = [p for _, p in self.players]
+        for city in self.cities:
+            players = players + city.get_all_players()
+        return players
+
+    def serialize(self):
+        gdict = {
+            "name": self.name,
+            "parent": None,
+            "state": self.state,
+            "cities": [c.serialize() for c in self.cities],
+            "players": self.players.serialize(),
+            "optional_fields": self.optional_fields
+        }
+        return gdict
+
+    @staticmethod
+    def deserialize(gdict, parent):
+        gate = Gate(str(gdict["name"]) if gdict["name"] is not None else gdict["name"], parent)
+        gate.state = gdict["state"]
+        gate.cities = [City.deserialize(c, gate) for c in gdict["cities"]]
+        gate.players = Players.deserialize(gdict["players"], gate)
+        gate.optional_fields = gdict["optional_fields"]
+        return gate
+
 
 class Server(object):
     LAYER_DEPTH = 1
@@ -331,6 +443,34 @@ class Server(object):
     def get_capacity(self):
         return self.players.get_capacity()
 
+    def get_all_players(self):
+        players = [p for _, p in self.players]
+        for gate in self.gates:
+            players = players + gate.get_all_players()
+        return players
+
+    def serialize(self):
+        sdict = {
+            "name": self.name,
+            "parent": self.parent,
+            "server_type": self.server_type,
+            "addr": self.addr,
+            "port": self.port,
+            "gates": [g.serialize() for g in self.gates],
+            "players": self.players.serialize()
+        }
+        return sdict
+
+    @staticmethod
+    def deserialize(sdict):
+        server = Server(str(sdict["name"]) if sdict["name"] is not None else sdict["name"],
+                        int(sdict["server_type"]) if sdict["server_type"] else sdict["server_type"],
+                        addr=str(sdict["addr"]) if sdict["addr"] is not None else sdict["addr"],
+                        port=int(sdict["port"]) if sdict["port"] is not None else sdict["port"])
+        server.parent = sdict["parent"]
+        server.gates = [Gate.deserialize(g, server) for g in sdict["gates"]]
+        server.players = Players.deserialize(sdict["players"], server)
+        return server
 
 def new_servers():
     servers = []
@@ -359,9 +499,21 @@ class State(object):
             # PAT Ticket => Owner's session
         }
         self.capcom_ids = {
-            # Capcom ID => Owner's session
+            # Capcom ID => {Owner's name, Owner's session}
         }
-        self.servers = new_servers()
+        #self.servers = new_servers()
+        self.cache = None
+        self.server_id = None
+        self.server = None
+        self.initialized = Event()
+
+    def setup_server(self, server_id, server_name, server_type, server_addr, server_port):
+        self.server_id = server_id
+        if server_id != 0:
+            self.server = Server(server_name, server_type, addr=server_addr, port=server_port)
+        else:
+            self.server = None
+        self.initialized.set()
 
     def new_pat_ticket(self, session):
         """Generates a new PAT ticket for the session."""
@@ -372,6 +524,12 @@ class State(object):
         self.sessions[session.pat_ticket] = session
         return session.pat_ticket
 
+    def register_pat_ticket(self, session):
+        """Register a Session's PAT ticket from another server."""
+        self.sessions[session.pat_ticket] = session
+        self.capcom_ids[session.capcom_id] = {"name": "", "session": None}
+        self.join_server(session, self.server_id)
+
     def use_capcom_id(self, session, capcom_id, name=None):
         """Attach the session to the Capcom ID."""
         assert capcom_id in self.capcom_ids, "Capcom ID doesn't exist"
@@ -381,6 +539,7 @@ class State(object):
 
         name = name or self.capcom_ids[capcom_id]["name"]
         self.capcom_ids[capcom_id] = {"name": name, "session": session}
+        database.get_instance().assign_name(capcom_id, name)
         return name
 
     def use_user(self, session, index, name):
@@ -390,7 +549,8 @@ class State(object):
         users = database.get_instance().get_capcom_ids(session.online_support_code)
         while users[index] == "******":
             capcom_id = database.new_random_str(6)
-            if capcom_id not in self.capcom_ids:
+            if capcom_id not in self.capcom_ids and \
+                not database.get_instance().get_name(capcom_id):
                 self.capcom_ids[capcom_id] = {"name": name, "session": None}
                 database.get_instance().assign_capcom_id(session.online_support_code, index, capcom_id)
                 break
@@ -404,7 +564,10 @@ class State(object):
         """Returns existing PAT session or None."""
         session = self.sessions.get(pat_ticket)
         if session and session.capcom_id:
-            self.use_capcom_id(session, session.capcom_id, session.hunter_name)
+            try:
+                self.use_capcom_id(session, session.capcom_id, session.hunter_name)
+            except AssertionError as e:
+                return None
         return session
 
     def disconnect_session(self, session):
@@ -421,11 +584,19 @@ class State(object):
         if pat_ticket in self.sessions:
             del self.sessions[pat_ticket]
 
+    def fetch_id(self, capcom_id):
+        if capcom_id not in self.capcom_ids:
+            self.capcom_ids[capcom_id] = {
+                "name": database.get_instance().get_name(capcom_id),
+                "session": None
+            }
+        return self.capcom_ids[capcom_id]
+
     def get_users(self, session, first_index, count):
         """Returns Capcom IDs tied to the session."""
         users = database.get_instance().get_capcom_ids(session.online_support_code)
         capcom_ids = [
-            (i, (capcom_id, self.capcom_ids.get(capcom_id, {})))
+            (i, (capcom_id, self.capcom_ids.get(capcom_id, self.fetch_id(capcom_id))))
             for i, capcom_id in enumerate(users[:count], first_index)
         ]
         size = len(capcom_ids)
@@ -436,17 +607,23 @@ class State(object):
             ])
         return capcom_ids
 
-    def join_server(self, session, index):
-        if session.local_info["server_id"] is not None:
-            self.leave_server(session, session.local_info["server_id"])
-        server = self.get_server(index)
-        server.players.add(session)
-        session.local_info["server_id"] = index
+    def join_server(self, session, server_id):
+        server = self.get_server(server_id)
+        if server_id != self.server_id:
+            # Joining another server
+            if self.cache:
+                self.cache.send_session_info(server_id, session)
+            if session.local_info["server_id"] is not None:
+                self.leave_server(session)
+        else:
+            # Connecting to this server
+            server.players.add(session)
+        session.local_info["server_id"] = server_id
         session.local_info["server_name"] = server.name
         return server
 
-    def leave_server(self, session, index):
-        self.get_server(index).players.remove(session)
+    def leave_server(self, session):
+        self.server.players.remove(session)
         session.local_info["server_id"] = None
         session.local_info["server_name"] = None
 
@@ -456,12 +633,35 @@ class State(object):
     def get_game_time(self):
         pass
 
-    def get_servers(self):
-            return self.servers
+    def get_servers_version(self):
+        return self.cache.servers_version
 
-    def get_server(self, index):
-        assert 0 < index <= len(self.servers), "Invalid server index"
-        return self.servers[index - 1]
+    def get_servers(self, include_ids=False):
+        if not self.cache:
+            return []
+        server_ids, servers = self.cache.get_server_list(include_ids=True)
+        below, above = [], []
+        below_ids, above_ids = [], []
+        for server_id, server in zip(server_ids, servers):
+            if server_id < self.server_id:
+                below.append(server)
+                below_ids.append(server_id)
+            elif server_id > self.server_id:
+                above.append(server)
+                above_ids.append(server_id)
+        if self.server_id != 0:
+            below.append(self.server)
+            below_ids.append(self.server_id)
+        below.extend(above)
+        below_ids.extend(above_ids)
+        if include_ids:
+            return below_ids, below
+        return below
+
+    def get_server(self, server_id):
+        if server_id == self.server_id:
+            return self.server
+        return self.cache.get_server(server_id)
 
     def get_gates(self, server_id):
         return self.get_server(server_id).gates
@@ -576,7 +776,7 @@ class State(object):
                     for field in fields
                 ))
 
-        for server in self.servers:
+        for server in self.get_servers():
             if server.server_type != server_type:
                 continue
             for gate in server.gates:
@@ -588,6 +788,23 @@ class State(object):
                     if match_city(city, fields)
                 ])
         return cities
+
+    def update_players(self):
+        # Central server method for clearing unused Capcom IDs
+        for capcom_id, player_info in self.capcom_ids.items():
+            if player_info["session"] is not None and \
+                player_info["session"].local_info["server_id"] and \
+                capcom_id not in self.cache.players:
+                self.capcom_ids[capcom_id]["session"] = None
+            elif capcom_id in self.cache.players:
+                self.capcom_ids[capcom_id]["session"] = self.cache.players[capcom_id]
+
+    def update_capcom_id(self, session):
+        # Central server method for keeping track of in-use Capcom IDs
+        self.capcom_ids[session.capcom_id]["session"] = session
+
+    def close_cache(self):
+        self.cache.close()
 
 
 CURRENT_STATE = State()

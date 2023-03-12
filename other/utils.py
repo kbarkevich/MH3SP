@@ -78,6 +78,17 @@ class Logger(object):
         return self.logger.critical(msg, *args, **kwargs)
 
 
+class SimpleNamespace (object):
+    def __init__ (self, **kwargs):
+        self.__dict__.update(kwargs)
+    def __repr__ (self):
+        keys = sorted(self.__dict__)
+        items = ("{}={!r}".format(k, self.__dict__[k]) for k in keys)
+        return "{}({})".format(type(self).__name__, ", ".join(items))
+    def __eq__ (self, other):
+        return self.__dict__ == other.__dict__
+
+
 class GenericUnpacker(object):
     """Generic unpacker that maps unpack and pack functions.
 
@@ -247,6 +258,26 @@ def get_config(name, config_file=CONFIG_FILE):
     }
 
 
+def get_remote_config(name, config_file=CONFIG_FILE):
+    config = ConfigParser.RawConfigParser(allow_no_value=True)
+    config.read(config_file)
+    return {
+        "IP": config.get(name, "IP"),
+        "Port": config.getint(name, "Port"),
+        "Name": config.get(name, "Name"),
+        "ServerType": config.get(name, "ServerType")
+    }
+
+
+def get_central_config(config_file=CONFIG_FILE):
+    config = ConfigParser.RawConfigParser(allow_no_value=True)
+    config.read(CONFIG_FILE)
+    return {
+        "CentralIP": config.get("CENTRAL", "CentralIP"),
+        "CentralCrossconnectPort": config.getint("CENTRAL", "CentralCrossconnectPort"),
+    }
+
+
 def get_default_ip():
     """Get the default IP address"""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -367,26 +398,27 @@ def create_server(server_class, server_handler,
 server_base = namedtuple("ServerBase", ["name", "cls", "handler"])
 
 
-def create_server_from_base(name, server_class, server_handler, silent=False,
-                            debug_mode=False):
+def create_server_from_base(name, server_class, server_handler, server_id,
+                            silent=False, debug_mode=False):
     """Create a server based on its config parameters."""
-    config = get_config(name)
+    general_config = get_config(name)
+    server_config = None if not server_id else get_remote_config("SERVER{}".format(server_id))
     return create_server(
         server_class, server_handler,
-        address=config["IP"],
-        port=config["Port"],
-        name=config["Name"],
-        max_thread=config["MaxThread"],
-        use_ssl=config["UseSSL"],
-        legacy_ssl=config["LegacySSL"],
-        ssl_cert=config["SSLCert"],
-        ssl_key=config["SSLKey"],
-        log_to_file=config["LogToFile"],
-        log_filename=config["LogFilename"],
-        log_to_console=config["LogToConsole"] and not silent,
-        log_to_window=config["LogToWindow"],
+        address=general_config["IP"],
+        port=general_config["Port"] if not server_id else server_config["Port"],
+        name=general_config["Name"] if not server_id else server_config["Name"],
+        max_thread=general_config["MaxThread"],
+        use_ssl=general_config["UseSSL"],
+        legacy_ssl=general_config["LegacySSL"],
+        ssl_cert=general_config["SSLCert"],
+        ssl_key=general_config["SSLKey"],
+        log_to_file=general_config["LogToFile"],
+        log_filename=general_config["LogFilename"],
+        log_to_console=general_config["LogToConsole"] and not silent,
+        log_to_window=general_config["LogToWindow"],
         debug_mode=debug_mode
-    ), config["LogToWindow"]
+    ), general_config["LogToWindow"]
 
 
 def server_main(name, server_class, server_handler):

@@ -19,7 +19,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-from mh.state import Players
+from mh.state import Players, get_instance
 import mh.pat_item as pati
 from mh.constants import *
 from mh.pat import PatRequestHandler, PatServer
@@ -28,7 +28,9 @@ from other.utils import hexdump, server_base, server_main
 
 class FmpServer(PatServer):
     """Basic FMP server class."""
-    pass
+    def close(self):
+        PatServer.close(self)
+        get_instance().close_cache()
 
 
 class FmpRequestHandler(PatRequestHandler):

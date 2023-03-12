@@ -30,8 +30,6 @@ MEDIA_VERSIONS = {
     "1002121503": "RMHP08",
 }
 
-RESERVE_DC_TIMEOUT = 40.0
-
 
 def new_random_str(length=6):
     return "".join(random.choice(CHARSET) for _ in range(length))
@@ -48,6 +46,10 @@ class TempDatabase(object):
     def __init__(self):
         self.consoles = {
             # Online support code => Capcom IDs
+        }
+
+        self.capcom_ids = {
+            # Capcom ID => Hunter name
         }
 
     def get_support_code(self, session):
@@ -75,6 +77,12 @@ class TempDatabase(object):
     def assign_capcom_id(self, online_support_code, index, capcom_id):
         """Assign a Capcom ID to an online support code."""
         self.consoles[online_support_code][index] = capcom_id
+
+    def assign_name(self, capcom_id, name):
+        self.capcom_ids[capcom_id] = name
+
+    def get_name(self, capcom_id):
+        return self.capcom_ids.get(capcom_id, "")
 
 
 CURRENT_DB = TempDatabase()

@@ -272,7 +272,7 @@ class PatRequestHandler(server.BasicPatHandler):
         The server sends upon login a notification with the server status.
         """
         data = struct.pack(">B", server_status)
-        self.session = self.session.get(connection_data)
+        self.session = self.session.get(connection_data, wait_for_session=server_status==3)
         self.send_packet(PatID4.NtcLogin, data, seq)
 
     def recvReqAuthenticationToken(self, packet_id, data, seq):
@@ -864,7 +864,7 @@ class PatRequestHandler(server.BasicPatHandler):
         JP: FMPリストバージョン確認応答
         TR: FMP list version acknowledgment
         """
-        data = struct.pack(">I", FMP_VERSION)
+        data = struct.pack(">I", FMP_CENTRAL_VERSION)
         self.send_packet(PatID4.AnsFmpListVersion, data, seq)
 
     def sendAnsFmpListVersion2(self, seq):
@@ -874,7 +874,7 @@ class PatRequestHandler(server.BasicPatHandler):
         JP: FMPリストバージョン確認応答
         TR: FMP list version acknowledgment
         """
-        data = struct.pack(">I", FMP_VERSION)
+        data = struct.pack(">I", self.session.get_fmp_version())
         self.send_packet(PatID4.AnsFmpListVersion2, data, seq)
 
     def recvReqFmpListHead(self, packet_id, data, seq):
@@ -885,6 +885,7 @@ class PatRequestHandler(server.BasicPatHandler):
         TR: Send FMP list count / FMP list count request
         """
         version, first_index, count = struct.unpack_from(">III", data)
+        self.session.preserve_server_ids(first_index, count)
         header = pati.unpack_bytes(data, 12)
         if packet_id == PatID4.ReqFmpListHead:
             self.sendAnsFmpListHead(seq)
@@ -943,7 +944,7 @@ class PatRequestHandler(server.BasicPatHandler):
         """
         unused = 0
         data = struct.pack(">II", unused, count)
-        data += pati.get_fmp_servers(self.session, first_index, count)
+        data += pati.get_fmp_central_servers(self.session, first_index, count)
         self.send_packet(PatID4.AnsFmpListData, data, seq)
 
     def sendAnsFmpListData2(self, first_index, count, seq):
@@ -1023,20 +1024,30 @@ class PatRequestHandler(server.BasicPatHandler):
         """
         index, = struct.unpack_from(">I", data)
         fields = pati.unpack_bytes(data, 4)
-        server = self.session.join_server(index)
-        config = get_config("FMP")
-        fmp_addr = get_ip(config["IP"])
-        fmp_port = config["Port"]
         fmp_data = pati.FmpData()
-        fmp_data.server_address = pati.String(server.addr or fmp_addr)
-        fmp_data.server_port = pati.Word(server.port or fmp_port)
-        fmp_data.assert_fields(fields)
+
         if packet_id == PatID4.ReqFmpInfo:
+            config = get_config("FMP")
+            central_fmp_addr = get_ip(config["IP"])
+            central_fmp_port = config["Port"]
+            fmp_data.server_address = pati.String(central_fmp_addr)
+            fmp_data.server_port = pati.Word(central_fmp_port)
+            fmp_data.assert_fields(fields)
             self.sendAnsFmpInfo(fmp_data, fields, seq)
         elif packet_id == PatID4.ReqFmpInfo2:
+            if not self.session.server_index_exists(index):
+                self.sendAnsAlert(PatID4.AnsFmpInfo2,
+                    "<LF=8><BODY><CENTER>Server is offline.<END>",
+                    seq)
+                return
+            server_id = self.session.recall_server_id(index)
+            server = self.session.join_server(server_id)
+            fmp_data.server_address = pati.String(server.addr)
+            fmp_data.server_port = pati.Word(server.port)
+            fmp_data.assert_fields(fields)
             self.sendAnsFmpInfo2(fmp_data, fields, seq)
 
-        # Preserve session in database, due to server selection
+        # Preserve session in state, due to server selection
         self.session.request_reconnection = True
 
     def sendAnsFmpInfo(self, fmp_data, fields, seq):

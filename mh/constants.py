@@ -307,7 +307,8 @@ ANNOUNCE = b"<BR><BODY>".join([
 CHARGE = b"""<BODY><CENTER>MH3 Server Project - No charge.<END>"""
 # VULGARITY_INFO = b"""MH3 Server Project - Vulgarity info (low)."""
 VULGARITY_INFO = b""
-FMP_VERSION = 1
+FMP_CENTRAL_VERSION = 1
+FMP_VERSION = 2
 
 TIME_STATE = 0
 IS_JAP = False

@@ -861,14 +861,11 @@ def get_fmp_servers(session, first_index, count):
     fmp_port = config["Port"]
 
     data = b""
-    start = first_index - 1
-    end = start + count
-    servers = session.get_servers()[start:end]
+
+    servers = session.recall_servers(first_index, count)
     for i, server in enumerate(servers, first_index):
         fmp_data = FmpData()
         fmp_data.index = Long(i)  # The server might be full, if zero
-        server.addr = server.addr or fmp_addr
-        server.port = server.port or fmp_port
         fmp_data.server_address = String(server.addr)
         fmp_data.server_port = Word(server.port)
         # Might produce invalid reads if too high
@@ -881,6 +878,32 @@ def get_fmp_servers(session, first_index, count):
         fmp_data.unk_string_0x0b = String("X")
         fmp_data.unk_long_0x0c = Long(0x12345678)
         data += fmp_data.pack()
+    return data
+
+
+def get_fmp_central_servers(session, first_index, count):
+    assert first_index > 0, "Invalid list index"
+
+    config = get_config("FMP")
+    fmp_addr = get_ip(config["IP"])
+    fmp_port = config["Port"]
+
+    start = first_index - 1
+    end = start + count
+    data = b""
+    for i in range(start, end):
+        fmp_data = FmpData()
+        fmp_data.index = Long(count+1)  # Index must not match any "real" server.
+        fmp_data.server_name = String("central")
+        fmp_data.server_address = String(fmp_addr)
+        fmp_data.server_port = Word(fmp_port)
+        fmp_data.server_type = LongLong(1)
+        fmp_data.player_count = Long(1)
+        fmp_data.player_capacity = Long(1)
+        fmp_data.unk_string_0x0b = String("X")
+        fmp_data.unk_long_0x0c = Long(0x12345678)
+        data += fmp_data.pack()
+
     return data
 
 
