@@ -78,7 +78,6 @@ class Session(object):
     def serialize(self):
         pdict = {
             "pat_ticket": self.pat_ticket,
-            #"local_info_": self.local_info,
             "local_info_server_id": self.local_info["server_id"],
             "local_info_server_name": self.local_info["server_name"],
             "local_info_gate_id": self.local_info["gate_id"],
@@ -95,24 +94,41 @@ class Session(object):
             "layer": self.layer,
             "state": self.state,
             "binary_setting": self.binary_setting,
-            "hunter_info": self.hunter_info.pack().decode(encoding='ISO-8859-1')
+            "hunter_info": self.hunter_info.pack().decode(
+                                encoding='ISO-8859-1'
+                           )
         }
         return pdict
 
     @staticmethod
     def deserialize(pdict):
         session = Session(None)
-        session.pat_ticket = str(pdict["pat_ticket"]) if pdict["pat_ticket"] else pdict["pat_ticket"]
-        session.local_info["server_id"] = int(pdict["local_info_server_id"]) if pdict["local_info_server_id"] else pdict["local_info_server_id"]
-        session.local_info["server_name"] = str(pdict["local_info_server_name"]) if pdict["local_info_server_name"] else pdict["local_info_server_name"]
-        session.local_info["gate_id"] = int(pdict["local_info_gate_id"]) if pdict["local_info_gate_id"] else pdict["local_info_gate_id"]
-        session.local_info["gate_name"] = str(pdict["local_info_gate_name"]) if pdict["local_info_gate_name"] else pdict["local_info_gate_name"]
-        session.local_info["city_id"] = int(pdict["local_info_city_id"]) if pdict["local_info_city_id"] else pdict["local_info_city_id"]
-        session.local_info["city_name"] = str(pdict["local_info_city_name"]) if pdict["local_info_city_name"] else pdict["local_info_city_name"]
-        session.local_info["city_size"] = int(pdict["local_info_city_size"]) if pdict["local_info_city_size"] else pdict["local_info_city_size"]
-        session.local_info["city_capacity"] = int(pdict["local_info_city_capacity"]) if pdict["local_info_city_capacity"] else pdict["local_info_city_capacity"]
-        session.local_info["circle_id"] = int(pdict["local_info_circle_id"]) if pdict["local_info_circle_id"] else pdict["local_info_circle_id"]
-        session.online_support_code = str(pdict["online_support_code"]) if pdict["online_support_code"] else pdict["online_support_code"]
+        session.pat_ticket = str(pdict["pat_ticket"])\
+            if pdict["pat_ticket"] else pdict["pat_ticket"]
+        session.local_info["server_id"] = int(pdict["local_info_server_id"])\
+            if pdict["local_info_server_id"] else pdict["local_info_server_id"]
+        session.local_info["server_name"] =\
+            str(pdict["local_info_server_name"])\
+            if pdict["local_info_server_name"]\
+            else pdict["local_info_server_name"]
+        session.local_info["gate_id"] = int(pdict["local_info_gate_id"])\
+            if pdict["local_info_gate_id"] else pdict["local_info_gate_id"]
+        session.local_info["gate_name"] = str(pdict["local_info_gate_name"])\
+            if pdict["local_info_gate_name"] else pdict["local_info_gate_name"]
+        session.local_info["city_id"] = int(pdict["local_info_city_id"])\
+            if pdict["local_info_city_id"] else pdict["local_info_city_id"]
+        session.local_info["city_name"] = str(pdict["local_info_city_name"])\
+            if pdict["local_info_city_name"] else pdict["local_info_city_name"]
+        session.local_info["city_size"] = int(pdict["local_info_city_size"])\
+            if pdict["local_info_city_size"] else pdict["local_info_city_size"]
+        session.local_info["city_capacity"] =\
+            int(pdict["local_info_city_capacity"])\
+            if pdict["local_info_city_capacity"]\
+            else pdict["local_info_city_capacity"]
+        session.local_info["circle_id"] = int(pdict["local_info_circle_id"])\
+            if pdict["local_info_circle_id"] else pdict["local_info_circle_id"]
+        session.online_support_code = str(pdict["online_support_code"])\
+            if pdict["online_support_code"] else pdict["online_support_code"]
         session.capcom_id = str(pdict["capcom_id"])
         session.hunter_name = str(pdict["hunter_name"])
         session.hunter_stats = pdict["hunter_stats"]
@@ -120,7 +136,8 @@ class Session(object):
         session.state = int(pdict["state"])
         session.binary_setting = pdict["binary_setting"]
         h_settings = bytearray(pdict["hunter_info"], encoding='ISO-8859-1')
-        session.hunter_info = pati.HunterSettings().unpack(h_settings, len(h_settings))
+        session.hunter_info = pati.HunterSettings().unpack(h_settings,
+                                                           len(h_settings))
         return session
 
     def get(self, connection_data, wait_for_session=False):
@@ -241,13 +258,13 @@ class Session(object):
     def get_gate(self):
         assert self.local_info['gate_id'] is not None
         return STATE.get_gate(self.local_info['server_id'],
-                           self.local_info['gate_id'])
+                              self.local_info['gate_id'])
 
     def get_city(self):
         assert self.local_info['city_id'] is not None
         return STATE.get_city(self.local_info['server_id'],
-                           self.local_info['gate_id'],
-                           self.local_info['city_id'])
+                              self.local_info['gate_id'],
+                              self.local_info['city_id'])
 
     def get_circle(self):
         assert self.local_info['circle_id'] is not None
@@ -361,25 +378,29 @@ class Session(object):
 
     def get_cities(self):
         return STATE.get_cities(self.local_info["server_id"],
-                             self.local_info["gate_id"])
+                                self.local_info["gate_id"])
 
     def is_city_empty(self, city_id):
-        return STATE.get_city(self.local_info["server_id"], self.local_info["gate_id"], city_id).get_state() == LayerState.EMPTY
+        return STATE.get_city(self.local_info["server_id"],
+                              self.local_info["gate_id"],
+                              city_id).get_state() == LayerState.EMPTY
 
     def reserve_city(self, city_id, reserve):
-        return STATE.reserve_city(self.local_info["server_id"], self.local_info["gate_id"], city_id, reserve)
+        return STATE.reserve_city(self.local_info["server_id"],
+                                  self.local_info["gate_id"],
+                                  city_id, reserve)
 
     def create_city(self, city_id, settings, optional_fields):
         return STATE.create_city(self,
-                              self.local_info["server_id"],
-                              self.local_info["gate_id"],
-                              city_id, settings, optional_fields)
+                                 self.local_info["server_id"],
+                                 self.local_info["gate_id"],
+                                 city_id, settings, optional_fields)
 
     def join_city(self, city_id):
         STATE.join_city(self,
-                     self.local_info["server_id"],
-                     self.local_info["gate_id"],
-                     city_id)
+                        self.local_info["server_id"],
+                        self.local_info["gate_id"],
+                        city_id)
         self.state = SessionState.CITY
 
     def leave_city(self):
@@ -409,7 +430,8 @@ class Session(object):
 
         circle = self.get_circle()
         with circle.lock(), circle.players.lock():
-            if circle.leader != self or circle.get_population() <= 1 or not circle.departed:
+            if circle.leader != self or circle.get_population() <= 1\
+                                     or not circle.departed:
                 return None, None
             for i, player in circle.players:
                 if player == self:

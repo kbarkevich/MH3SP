@@ -137,7 +137,8 @@ class CentralConnectionHandler(object):
         self.send_packet(PacketTypes.SendConnectionInfo, data)
 
     def RecvReqServerRefresh(self, server_id, data):
-        self.cache.debug("Recieved server refresh request from Server {}.".format(
+        self.cache.debug("Recieved server refresh request from \
+                          Server {}.".format(
             server_id
         ))
         self.SendServerIDList()
@@ -160,7 +161,9 @@ class CentralConnectionHandler(object):
                             bound for Server {}.".format(
             server_id, dest_server_id
         ))
-        self.cache.update_player_record(Session.deserialize(json.loads(data[2:])))
+        self.cache.update_player_record(
+            Session.deserialize(json.loads(data[2:]))
+        )
         self.cache.get_handler(dest_server_id).SendSessionInfo(data[2:])
 
     def SendSessionInfo(self, ser_session):
@@ -239,7 +242,7 @@ class RemoteConnectionHandler(object):
 
     def pack_data(self, data, packet_id):
         return struct.pack(">IIH", len(data), packet_id,
-                            self.cache.server_id) + data
+                           self.cache.server_id) + data
 
     def direct_to_handler(self, packet):
         packet_type, data = packet
@@ -250,7 +253,8 @@ class RemoteConnectionHandler(object):
         self.send_packet(PacketTypes.FriendlyHello, data)
 
     def ReqConnectionInfo(self, data):
-        self.cache.debug("Recieved request for update connection info from Central.")
+        self.cache.debug("Recieved request for update connection \
+                          info from Central.")
         data = json.dumps(get_instance().server.serialize())
         self.SendConnectionInfo(data)
 
@@ -267,7 +271,7 @@ class RemoteConnectionHandler(object):
             server_id
         ))
         self.send_packet(PacketTypes.ReqConnectionInfo,
-            struct.pack(">H", server_id))
+                         struct.pack(">H", server_id))
 
     def RecvServerIDList(self, data):
         self.cache.debug("Recieved updated Server ID list from Central.")
@@ -329,8 +333,9 @@ class RemoteConnectionHandler(object):
 
 class Cache(Logger):
     def __init__(self, server_id, debug_mode=False, log_to_file=False,
-                log_to_console=False, log_to_window=False,
-                refresh_period=30, use_ssl=True, ssl_location='cert/crossserverCA/'):
+                 log_to_console=False, log_to_window=False,
+                 refresh_period=30, use_ssl=True,
+                 ssl_location='cert/crossserverCA/'):
         Logger.__init__(self)
         self.servers_version = 1
         self.servers = {
@@ -344,38 +349,53 @@ class Cache(Logger):
         self.players = {
             # capcom_id -> connectionless sessions from other servers
         }
-        self.set_logger(create_logger("Cache", level=logging.DEBUG if debug_mode else logging.INFO,
-            log_to_file="cache.log" if log_to_file else "",
-            log_to_console=log_to_console,
-            log_to_window=log_to_window))
+        self.set_logger(create_logger("Cache",
+                                      level=logging.DEBUG
+                                      if debug_mode else logging.INFO,
+                                      log_to_file="cache.log" if log_to_file
+                                      else "",
+                                      log_to_console=log_to_console,
+                                      log_to_window=log_to_window))
 
-        self.is_central_server = server_id==0
+        self.is_central_server = server_id == 0
         if not self.is_central_server:
             remote_config = get_remote_config("SERVER{}".format(server_id))
-            get_instance().setup_server(server_id, remote_config["Name"], int(remote_config["ServerType"]),
-                get_ip(remote_config["IP"]), int(remote_config["Port"]))
+            get_instance().setup_server(server_id,
+                                        remote_config["Name"],
+                                        int(remote_config["ServerType"]),
+                                        get_ip(remote_config["IP"]),
+                                        int(remote_config["Port"]))
         else:
             config = get_config("FMP")
-            get_instance().setup_server(server_id, "", 0, '0.0.0.0', config["Port"])
+            get_instance().setup_server(
+                server_id, "", 0, '0.0.0.0', config["Port"]
+            )
         self.shut_down = False
         self.refresh_period = refresh_period
         self.handlers = {}
         self.server_id = server_id
         central_config = get_central_config()
-        self.central_connection = (central_config["CentralIP"], central_config["CentralCrossconnectPort"])
+        self.central_connection = (central_config["CentralIP"],
+                                   central_config["CentralCrossconnectPort"])
         self.sel = selectors.DefaultSelector()
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         if use_ssl:
             import ssl
             context = ssl.SSLContext(ssl.PROTOCOL_TLS)
             if self.is_central_server:
-                context.load_verify_locations(cafile="{}ca.crt".format(ssl_location))
+                context.load_verify_locations(
+                    cafile="{}ca.crt".format(ssl_location)
+                )
                 context.load_cert_chain("{}MH3SP.crt".format(ssl_location),
-                    "{}MH3SP.key".format(ssl_location))
+                                        "{}MH3SP.key".format(ssl_location))
             else:
-                context.load_cert_chain("{}client{}.crt".format(ssl_location, server_id),
-                    "{}client{}.key".format(ssl_location, server_id))
-            self.socket = context.wrap_socket(self.socket, server_side=self.is_central_server)
+                context.load_cert_chain(
+                    "{}client{}.crt".format(ssl_location, server_id),
+                    "{}client{}.key".format(ssl_location, server_id)
+                )
+            self.socket = context.wrap_socket(
+                self.socket, server_side=self.is_central_server
+            )
 
     def update_player_record(self, session):
         get_instance().update_capcom_id(session)
@@ -442,13 +462,17 @@ class Cache(Logger):
             except:
                 self.close()
                 raise
-            self.info("Listening for remote Servers on {}".format(self.central_connection))
+            self.info("Listening for remote Servers on {}".format(
+                self.central_connection
+            ))
             self.socket.setblocking(False)
             self.sel.register(self.socket, selectors.EVENT_READ, data=None)
             try:
                 self.maintain_central_server(refresh_timer)
             except KeyboardInterrupt:
-                self.info("Keyboard interrupt, disconnecting from remote servers")
+                self.info(
+                    "Keyboard interrupt, disconnecting from remote servers"
+                )
             except Exception as e:
                 if not self.shut_down:
                     self.error(e)
@@ -456,15 +480,23 @@ class Cache(Logger):
                 self.close()
         else:
             # REMOTE SERVER CONNECTION TO CENTRAL
-            self.info("Connecting to central server at {}...".format(self.central_connection))
+            self.info("Connecting to central server at {}...".format(
+                self.central_connection
+            ))
             self.socket.setblocking(True)
-            self.socket.connect_ex(("localhost" if self.central_connection[0]=="0.0.0.0" else self.central_connection[0], self.central_connection[1]))
+            self.socket.connect_ex((
+                "localhost" if self.central_connection[0] == "0.0.0.0"
+                else self.central_connection[0],
+                self.central_connection[1]
+            ))
             events = selectors.EVENT_READ | selectors.EVENT_WRITE
             self.sel.register(self.socket, events)
             try:
                 self.maintain_remote_server(refresh_timer)
             except KeyboardInterrupt:
-                self.info("Keyboard interrupt, disconnecting from remote servers")
+                self.info(
+                    "Keyboard interrupt, disconnecting from remote servers"
+                )
             except Exception as e:
                 if not self.shut_down:
                     self.error(e)
@@ -480,9 +512,12 @@ class Cache(Logger):
                 if connection == self.socket:
                     # Accept a new connection
                     client_socket, client_address = connection.accept()
-                    self.info("Remote Server connected from {}".format(client_address))
+                    self.info("Remote Server connected from {}".format(
+                        client_address
+                    ))
                     client_socket.setblocking(1)
-                    handler = CentralConnectionHandler(client_socket, client_address,
+                    handler = CentralConnectionHandler(client_socket,
+                                                       client_address,
                                                        self)
                     self.sel.register(handler, selectors.EVENT_READ)
                     self.update_servers_version(self.servers_version + 1)
@@ -496,7 +531,8 @@ class Cache(Logger):
                             continue
                         connection.direct_to_handler(packet)
                     except Exception as e:
-                        self.info("Connection to Remote Server {} lost.".format(
+                        self.info("Connection to Remote Server \
+                            {} lost.".format(
                             connection.id
                         ))
                         connection.on_exception(e)
@@ -511,7 +547,9 @@ class Cache(Logger):
             # 2: Pass on an outbound session
             if len(self.outbound_sessions):
                 outbound_session = self.outbound_sessions.pop(0)
-                self.get_handler(outbound_session[0]).SendSessionInfo(outbound_session[1])
+                self.get_handler(outbound_session[0]).SendSessionInfo(
+                    outbound_session[1]
+                )
 
     def maintain_remote_server(self, refresh_timer):
         while not self.shut_down:

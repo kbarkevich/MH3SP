@@ -272,7 +272,8 @@ class PatRequestHandler(server.BasicPatHandler):
         The server sends upon login a notification with the server status.
         """
         data = struct.pack(">B", server_status)
-        self.session = self.session.get(connection_data, wait_for_session=server_status==3)
+        self.session = self.session.get(connection_data,
+                                        wait_for_session=server_status == 3)
         self.send_packet(PatID4.NtcLogin, data, seq)
 
     def recvReqAuthenticationToken(self, packet_id, data, seq):
@@ -1037,8 +1038,9 @@ class PatRequestHandler(server.BasicPatHandler):
         elif packet_id == PatID4.ReqFmpInfo2:
             if not self.session.server_index_exists(index):
                 self.sendAnsAlert(PatID4.AnsFmpInfo2,
-                    "<LF=8><BODY><CENTER>Server is offline.<END>",
-                    seq)
+                                  "<LF=8><BODY><CENTER>\
+                                  Server is offline.<END>",
+                                  seq)
                 return
             server_id = self.session.recall_server_id(index)
             server = self.session.join_server(server_id)
@@ -1289,10 +1291,10 @@ class PatRequestHandler(server.BasicPatHandler):
         # Specifically when a client is deserializing data from the packets
         # `NtcLayerBinary` and `NtcLayerBinary2`
         # TODO: Proper field value and name
-        user_info.info_mine_0x0f = pati.Long(int(hash(user.capcom_id))
-                                             & 0xffffffff)
-        user_info.info_mine_0x10 = pati.Long(int(hash(user.capcom_id[::-1]))
-                                             & 0xffffffff)
+        user_info.info_mine_0x0f = pati.Long(int(hash(user.capcom_id)) &
+                                             0xffffffff)
+        user_info.info_mine_0x10 = pati.Long(int(hash(user.capcom_id[::-1])) &
+                                             0xffffffff)
 
         data = user_info.pack()
         # TODO: Figure out the optional fields
@@ -2263,7 +2265,9 @@ class PatRequestHandler(server.BasicPatHandler):
                 layer_data.size = pati.Long(city.get_population())
                 layer_data.size2 = pati.Long(city.get_population())
                 layer_data.capacity = pati.Long(city.get_capacity())
-                layer_data.in_quest_players = pati.Long(city.in_quest_players())
+                layer_data.in_quest_players = pati.Long(
+                    city.in_quest_players()
+                )
                 layer_data.unk_long_0x0c = pati.Long(0xc)     # TODO: Reverse
                 layer_data.state = pati.Byte(city.get_state())
                 layer_data.layer_depth = pati.Byte(city.LAYER_DEPTH)
@@ -2276,10 +2280,16 @@ class PatRequestHandler(server.BasicPatHandler):
                     for _, player in city.players:
                         layer_user = pati.LayerUserInfo()
                         layer_user.capcom_id = pati.String(player.capcom_id)
-                        layer_user.hunter_name = pati.String(player.hunter_name)
-                        layer_user.assert_fields(self.search_info["user_fields"])
+                        layer_user.hunter_name = pati.String(
+                            player.hunter_name
+                        )
+                        layer_user.assert_fields(
+                            self.search_info["user_fields"]
+                        )
                         data += layer_user.pack()
-                        data += pati.pack_optional_fields(player.get_optional_fields())
+                        data += pati.pack_optional_fields(
+                            player.get_optional_fields()
+                        )
         self.send_packet(PatID4.AnsLayerDetailSearchData, data, seq)
 
     def recvReqLayerDetailSearchFoot(self, packet_id, data, seq):
@@ -2585,8 +2595,8 @@ class PatRequestHandler(server.BasicPatHandler):
                     new_host_index, new_host = \
                         self.session.try_transfer_circle_leadership()
                     if new_host:
-                        self.sendNtcCircleHost(circle, new_host, new_host_index,
-                                               seq)
+                        self.sendNtcCircleHost(circle, new_host,
+                                               new_host_index, seq)
                 else:
                     self.sendNtcCircleBreak(circle, seq)
             self.session.leave_circle()
