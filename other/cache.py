@@ -349,6 +349,9 @@ class Cache(Logger):
         self.players = {
             # capcom_id -> connectionless sessions from other servers
         }
+        self.ready_sessions = {
+            # pat_ticket -> True or connection_data
+        }
         self.set_logger(create_logger("Cache",
                                       level=logging.DEBUG
                                       if debug_mode else logging.INFO,
@@ -430,7 +433,24 @@ class Cache(Logger):
         )
 
     def new_session(self, session):
-        get_instance().register_pat_ticket(session)
+        ready_data = self.session_ready(session.pat_ticket)
+        if ready_data:
+            self.set_session_ready(session.pat_ticket, False)
+            get_instance().register_pat_ticket(session)
+            self.send_login_packet(*ready_data)
+            
+        else:
+            get_instance().register_pat_ticket(session)
+            self.set_session_ready(session.pat_ticket, True)
+
+    def session_ready(self, pat_ticket):
+        return self.ready_sessions.get(pat_ticket, False)
+
+    def set_session_ready(self, pat_ticket, store_data):
+        self.ready_sessions[pat_ticket] = store_data
+
+    def send_login_packet(self, player_handler, connection_data, seq):
+        player_handler.sendNtcLogin(3, connection_data, seq)
 
     def get_handler(self, server_id):
         return self.handlers[server_id]

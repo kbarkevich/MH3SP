@@ -828,6 +828,14 @@ class State(object):
         # Central server method for keeping track of in-use Capcom IDs
         self.capcom_ids[session.capcom_id]["session"] = session
 
+    def session_ready(self, pat_ticket):
+        if self.server_id == 0:
+            return True
+        return self.cache.session_ready(pat_ticket)
+
+    def set_session_ready(self, pat_ticket, store_data):
+        self.cache.set_session_ready(pat_ticket, store_data)
+
     def close_cache(self):
         self.cache.close()
 

@@ -140,24 +140,14 @@ class Session(object):
                                                            len(h_settings))
         return session
 
-    def get(self, connection_data, wait_for_session=False):
+    def get(self, connection_data):
         """Return the session associated with the connection data, if any."""
         has_pat_ticket = hasattr(connection_data, "pat_ticket")
         if has_pat_ticket:
             self.pat_ticket = to_str(
                 pati.unpack_binary(connection_data.pat_ticket)
             )
-        if wait_for_session:
-            if has_pat_ticket:
-                session = STATE.get_session(self.pat_ticket)
-                while session is None:
-                    time.sleep(1)
-                    session = STATE.get_session(self.pat_ticket)
-            else:
-                session = self
-        else:
-            session = STATE.get_session(self.pat_ticket) or self
-
+        session = STATE.get_session(self.pat_ticket) or self
         if hasattr(connection_data, "online_support_code"):
             self.online_support_code = to_str(
                 pati.unpack_string(connection_data.online_support_code)
@@ -174,6 +164,20 @@ class Session(object):
             not ("pat_ticket" in connection_data or
                  "online_support_code" in connection_data)
         return session
+
+    def session_ready(self, connection_data):
+        if hasattr(connection_data, "pat_ticket"):
+            return STATE.session_ready(to_str(
+                pati.unpack_binary(connection_data.pat_ticket)
+            ))
+        else:
+            return STATE.session_ready(self.pat_ticket)
+
+    def set_session_ready(self, connection_data, store_data):
+        STATE.set_session_ready(
+            to_str(pati.unpack_binary(connection_data.pat_ticket)),
+            store_data
+        )
 
     def get_support_code(self):
         """Return the online support code."""

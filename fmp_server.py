@@ -40,7 +40,11 @@ class FmpRequestHandler(PatRequestHandler):
         """AnsConnection packet."""
         connection_data = pati.ConnectionData.unpack(data)
         self.server.debug("Connection: {!r}".format(connection_data))
-        self.sendNtcLogin(3, connection_data, seq)
+        if self.session.session_ready(connection_data):
+            self.session.set_session_ready(connection_data, False)
+            self.sendNtcLogin(3, connection_data, seq)
+        else:
+            self.session.set_session_ready(connection_data, (self, connection_data, seq))
 
     def sendAnsLayerDown(self, layer_id, layer_set, seq):
         """AnsLayerDown packet.

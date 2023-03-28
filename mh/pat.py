@@ -272,8 +272,7 @@ class PatRequestHandler(server.BasicPatHandler):
         The server sends upon login a notification with the server status.
         """
         data = struct.pack(">B", server_status)
-        self.session = self.session.get(connection_data,
-                                        wait_for_session=server_status == 3)
+        self.session = self.session.get(connection_data)
         self.send_packet(PatID4.NtcLogin, data, seq)
 
     def recvReqAuthenticationToken(self, packet_id, data, seq):
