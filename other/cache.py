@@ -334,8 +334,7 @@ class RemoteConnectionHandler(object):
 class Cache(Logger):
     def __init__(self, server_id, debug_mode=False, log_to_file=False,
                  log_to_console=False, log_to_window=False,
-                 refresh_period=30, use_ssl=True,
-                 ssl_location='cert/crossserverCA/'):
+                 refresh_period=30, ssl_location='cert/crossserverCA/'):
         Logger.__init__(self)
         self.servers_version = 1
         self.servers = {
@@ -383,7 +382,7 @@ class Cache(Logger):
                                    central_config["CentralCrossconnectPort"])
         self.sel = selectors.DefaultSelector()
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        if use_ssl:
+        if central_config["CrossconnectSSL"]:
             import ssl
             context = ssl.SSLContext(ssl.PROTOCOL_TLS)
             if self.is_central_server:

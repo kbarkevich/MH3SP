@@ -54,8 +54,9 @@ def main(args):
         threading.Thread(target=server.serve_forever)
         for server in servers
     ]
-    cache = Cache(server_id=args.server_id, debug_mode=args.debug_mode, log_to_file=True,
-                log_to_console=not args.silent, log_to_window=False)
+    cache = Cache(server_id=args.server_id, debug_mode=args.debug_mode,
+                log_to_file=True, log_to_console=not args.silent,
+                log_to_window=False)
     threads.append(threading.Thread(target=cache.maintain_connection))
     for thread in threads:
         thread.start()

@@ -276,6 +276,7 @@ def get_central_config(config_file=CONFIG_FILE):
     return {
         "CentralIP": config.get("CENTRAL", "CentralIP"),
         "CentralCrossconnectPort": config.getint("CENTRAL", "CentralCrossconnectPort"),
+        "CrossconnectSSL": config.getboolean("CENTRAL", "CrossconnectSSL")
     }
 
 
