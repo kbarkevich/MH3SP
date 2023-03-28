@@ -264,6 +264,7 @@ def get_remote_config(name, config_file=CONFIG_FILE):
     return {
         "IP": config.get(name, "IP"),
         "Port": config.getint(name, "Port"),
+        "Capacity": config.getint(name, "Capacity"),
         "Name": config.get(name, "Name"),
         "ServerType": config.get(name, "ServerType")
     }

@@ -20,6 +20,7 @@
 """
 
 from mh import database
+from math import floor
 import time
 from threading import RLock, Event
 
@@ -430,17 +431,24 @@ class Gate(object):
 class Server(object):
     LAYER_DEPTH = 1
 
-    def __init__(self, name, server_type, gate_count=40, capacity=2000,
+    def __init__(self, name, server_type, capacity=2000,
                  addr=None, port=None):
         self.name = name
         self.parent = None
         self.server_type = server_type
         self.addr = addr
         self.port = port
+        gate_count = int(floor(capacity / 100))
+        remainder = capacity % 100
         self.gates = [
-            Gate("City Gate{}".format(i), self)
+            Gate("City Gate {}".format(i), self)
             for i in range(1, gate_count+1)
         ]
+        if remainder:
+            self.gates.append(Gate(
+                "City Gate {}".format(len(self.gates)+1),
+                self, player_capacity=remainder
+            ))
         self.players = Players(capacity)
 
     def get_population(self):
@@ -520,10 +528,10 @@ class State(object):
         self.initialized = Event()
 
     def setup_server(self, server_id, server_name, server_type,
-                     server_addr, server_port):
+                     capacity, server_addr, server_port):
         self.server_id = server_id
         if server_id != 0:
-            self.server = Server(server_name, server_type,
+            self.server = Server(server_name, server_type, capacity,
                                  addr=server_addr, port=server_port)
         else:
             self.server = None

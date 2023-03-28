@@ -366,12 +366,13 @@ class Cache(Logger):
             get_instance().setup_server(server_id,
                                         remote_config["Name"],
                                         int(remote_config["ServerType"]),
+                                        int(remote_config["Capacity"]),
                                         get_ip(remote_config["IP"]),
                                         int(remote_config["Port"]))
         else:
             config = get_config("FMP")
             get_instance().setup_server(
-                server_id, "", 0, '0.0.0.0', config["Port"]
+                server_id, "", 0, 1, '0.0.0.0', config["Port"]
             )
         self.shut_down = False
         self.refresh_period = refresh_period
