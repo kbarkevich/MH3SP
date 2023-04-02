@@ -160,7 +160,7 @@ class Players(Lockable):
 
     def __iter__(self):
         if self.used < 1:
-            raise StopIteration
+            return
 
         for i, v in enumerate(self.slots):
             if v is None:

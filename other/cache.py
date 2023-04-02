@@ -129,7 +129,7 @@ class CentralConnectionHandler(object):
             requested_server_id
         ))
         if server_id in self.cache.servers:
-            data = json.dumps(self.cache.servers[server_id].serialize())
+            data = json.dumps(self.cache.servers[server_id].serialize()).encode('utf-8')
             self.SendConnectionInfo(data)
 
     def SendConnectionInfo(self, data):
@@ -144,7 +144,7 @@ class CentralConnectionHandler(object):
         self.SendServerIDList()
         for _server_id in self.cache.servers:
             data = struct.pack(">H", _server_id)
-            data += json.dumps(self.cache.servers[_server_id].serialize())
+            data += json.dumps(self.cache.servers[_server_id].serialize()).encode('utf-8')
             self.SendConnectionInfo(data)
 
     def SendServerIDList(self):
@@ -170,7 +170,9 @@ class CentralConnectionHandler(object):
         self.send_packet(PacketTypes.SessionInfo, ser_session)
 
     def RecvServerShutdown(self, server_id, data):
-        raise Exception("Server shutting down.")
+        raise Exception("Remote Server {} shutting down.".format(
+            server_id
+        ))
 
     def finish(self):
         if self.finished:
@@ -255,7 +257,7 @@ class RemoteConnectionHandler(object):
     def ReqConnectionInfo(self, data):
         self.cache.debug("Recieved request for update connection \
                           info from Central.")
-        data = json.dumps(get_instance().server.serialize())
+        data = json.dumps(get_instance().server.serialize()).encode('utf-8')
         self.SendConnectionInfo(data)
 
     def SendConnectionInfo(self, data):
@@ -278,23 +280,29 @@ class RemoteConnectionHandler(object):
         servers_version, count = struct.unpack(">HH", data[:4])
         self.cache.update_servers_version(servers_version)
         updated_server_ids = []
+        print("count is {}".format(count))
         for i in range(count):
-            server_id = struct.unpack(">H", data[2*(i+2):2*(i+2)+2])
+            server_id, = struct.unpack(">H", data[2*(i+2):2*(i+2)+2])
+            print("unpacked server id {}".format(server_id))
             updated_server_ids.append(server_id)
+        flagged_server_ids = []
         for server_id in self.cache.servers.keys():
             if server_id not in updated_server_ids:
-                self.cache.prune_server(server_id)
+                flagged_server_ids.append(server_id)
+        for server_id in flagged_server_ids:
+            print("PRUNING {}".format(server_id))
+            self.cache.prune_server(server_id)
 
     def RecvConnectionInfo(self, data):
+        server_id, = struct.unpack(">H", data[:2])
+        self.cache.debug("Obtained updated server info for Server {}".format(
+            server_id
+        ))
         try:
-            server_id, = struct.unpack(">H", data[:2])
             server = Server.deserialize(json.loads(data[2:]))
         except Exception as e:
             self.cache.error(e)
             return
-        self.cache.debug("Obtained updated server info for Server {}".format(
-            server_id
-        ))
         self.cache.servers[server_id] = server
 
     def SendSessionInfo(self, server_id, ser_session):
@@ -429,7 +437,7 @@ class Cache(Logger):
 
     def send_session_info(self, server_id, session):
         self.outbound_sessions.append(
-            (server_id, json.dumps(session.serialize()))
+            (server_id, json.dumps(session.serialize()).encode('utf-8'))
         )
 
     def new_session(self, session):
@@ -552,8 +560,9 @@ class Cache(Logger):
                         connection.direct_to_handler(packet)
                     except Exception as e:
                         self.info("Connection to Remote Server \
-                            {} lost.".format(
-                            connection.id
+                            {} lost: \n{}.".format(
+                            connection.id,
+                            e
                         ))
                         connection.on_exception(e)
                         if connection.is_finished():
@@ -597,6 +606,10 @@ class Cache(Logger):
                             continue
                         connection.direct_to_handler(packet)
                     except Exception as e:
+                        self.info("Connection to Central Server \
+                            intterupted: \n{}.".format(
+                            e
+                        ))
                         connection.on_exception(e)
                         if connection.is_finished():
                             self.remove_handler(connection)

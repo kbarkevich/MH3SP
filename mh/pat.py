@@ -23,7 +23,7 @@ import struct
 import traceback
 from datetime import datetime, timedelta
 
-from other.utils import Logger, get_config, get_ip, hexdump
+from other.utils import Logger, get_config, get_ip, hexdump, to_str
 
 import mh.pat_item as pati
 import mh.server as server
@@ -75,12 +75,24 @@ class PatServer(server.BasicPatServer, Logger):
     def layer_broadcast(self, session, packet_id, data, seq,
                         exclude_self=True):
         for _, player in session.get_layer_players():
+            print("SENDING TO PLAYER {} FROM {}".format(
+                player.hunter_name,
+                session.hunter_name
+            ))
             if exclude_self and player == session:
                 continue
 
             handler = self.get_pat_handler(player)
             if handler:
+                print("SENDING FROM {} TO {}...".format(
+                    session.hunter_name,
+                    player.hunter_name
+                ))
                 handler.try_send_packet(packet_id, data, seq)
+                print("!!SENT TO {} FROM {}!".format(
+                    player.hunter_name,
+                    session.hunter_name
+                ))
 
     def circle_broadcast(self, circle, packet_id, data, seq,
                          session=None):
@@ -819,7 +831,9 @@ class PatRequestHandler(server.BasicPatHandler):
         ))
         hunter_name = None
         if hasattr(user_obj, "hunter_name"):
-            hunter_name = pati.unpack_string(user_obj.hunter_name)
+            hunter_name = to_str(pati.unpack_string(user_obj.hunter_name))
+        for i in range(1000):
+            print("HUNTER NAME: {}".format(hunter_name))
         self.session.use_user(slot_index, hunter_name)
         user_obj.capcom_id = pati.String(self.session.capcom_id)
         self.sendAnsUserObject(is_slot_empty, slot_index, user_obj, seq)
@@ -1252,7 +1266,7 @@ class PatRequestHandler(server.BasicPatHandler):
         TR: User search data request
         """
         with pati.Unpacker(data) as unpacker:
-            capcom_id = unpacker.lp2_string()
+            capcom_id = unpacker.lp2_string().decode('utf-8')
             search_info = unpacker.UserSearchInfo()
         self.server.debug("SearchInfo: {}, {!r}".format(capcom_id,
                                                         search_info))

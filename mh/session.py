@@ -89,15 +89,19 @@ class Session(object):
             "local_info_circle_id": self.local_info["circle_id"],
             "online_support_code": self.online_support_code,
             "capcom_id": self.capcom_id,
-            "hunter_name": self.hunter_name,
+            "hunter_name": self.hunter_name,#.decode("utf-8"),
             "hunter_stats": self.hunter_stats,
             "layer": self.layer,
             "state": self.state,
-            "binary_setting": self.binary_setting,
+            #"binary_setting": self.binary_setting,
+            "binary_setting": self.binary_setting.decode(
+                                encoding='ISO-8859-1'
+                            ),
             "hunter_info": self.hunter_info.pack().decode(
                                 encoding='ISO-8859-1'
                            )
         }
+
         return pdict
 
     @staticmethod
@@ -130,11 +134,12 @@ class Session(object):
         session.online_support_code = str(pdict["online_support_code"])\
             if pdict["online_support_code"] else pdict["online_support_code"]
         session.capcom_id = str(pdict["capcom_id"])
-        session.hunter_name = str(pdict["hunter_name"])
+        session.hunter_name = str(pdict["hunter_name"])#str.encode(pdict["hunter_name"], encoding='utf-8')##str(pdict["hunter_name"])
         session.hunter_stats = pdict["hunter_stats"]
         session.layer = int(pdict["layer"])
         session.state = int(pdict["state"])
-        session.binary_setting = pdict["binary_setting"]
+        session.binary_setting = str.encode(pdict["binary_setting"], 'ISO-8859-1')
+        #session.binary_setting = pdict["binary_setting"]
         h_settings = bytearray(pdict["hunter_info"], encoding='ISO-8859-1')
         session.hunter_info = pati.HunterSettings().unpack(h_settings,
                                                            len(h_settings))
