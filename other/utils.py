@@ -248,6 +248,20 @@ def get_config(name, config_file=CONFIG_FILE):
     }
 
 
+def get_mysql_config(name, config_file=CONFIG_FILE):
+    config = ConfigParser.RawConfigParser(allow_no_value=True)
+    config.read(config_file)
+    return {
+        "user": config.get(name, "User"),
+        "password": config.get(name, "Password"),
+        "host": config.get(name, "Host"),
+        "database": config.get(name, "database"),
+        "ssl_ca": config.get(name, "ssl_ca") or None,
+        "ssl_cert": config.get(name, "ssl_cert") or None,
+        "ssl_key": config.get(name, "ssl_key") or None
+    }
+
+
 def get_remote_config(name, config_file=CONFIG_FILE):
     config = ConfigParser.RawConfigParser(allow_no_value=True)
     config.read(config_file)

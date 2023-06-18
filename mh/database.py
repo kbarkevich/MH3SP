@@ -9,6 +9,7 @@ import sqlite3
 import time
 from other import utils
 from threading import RLock, local as thread_local
+from other.utils import get_mysql_config
 
 
 CHARSET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -347,6 +348,184 @@ class TempSQLiteDatabase(TempDatabase):
             return friends[begin:end]
 
 
+class MySQLDatabase(TempDatabase):
+    """Hybrid MySQL/TempDatabase."""
+
+    def __init__(self):
+        self.parent = super(MySQLDatabase, self)
+        self.parent.__init__()
+        from mysql import connector
+        from mysql.connector.constants import ClientFlag
+        config = get_mysql_config("MYSQL")
+        config['charset'] = 'utf8'
+        config['autocommit'] = True
+        config['client_flags'] = [ClientFlag.SSL] if config['ssl_ca'] else None
+        self.connection = connector.connect(**config)
+        self.create_database()
+        self.populate_database()
+
+    def create_database(self):
+        with self.connection.cursor() as cursor:
+            consoles_creation = "CREATE TABLE IF NOT EXISTS consoles"\
+                +" (support_code VARCHAR(11) NOT NULL,"\
+                +" slot_index TINYINT NOT NULL,"\
+                +" capcom_id VARCHAR(6) NOT NULL,"\
+                +" name VARCHAR(8),"\
+                +" PRIMARY KEY(capcom_id),"\
+                +" UNIQUE profiles_uniq_idx (support_code, slot_index));"
+            cursor.execute(consoles_creation)
+
+            friends_creation = "CREATE TABLE IF NOT EXISTS friend_lists"\
+                +"(id MEDIUMINT NOT NULL AUTO_INCREMENT,"\
+                +"capcom_id VARCHAR(6) NOT NULL,"\
+                +"friend_id VARCHAR(6) NOT NULL,"\
+                +"PRIMARY KEY (id),"\
+                +" UNIQUE friends_uniq_idx (capcom_id, friend_id));"
+            cursor.execute(friends_creation)
+
+    def populate_database(self):
+        with self.connection.cursor() as cursor:
+            cursor.execute("SELECT * FROM consoles")
+            rows = cursor.fetchall()
+            for support_code, slot_index, capcom_id, name in rows:
+                support_code = str(support_code)
+                capcom_id = str(capcom_id)
+                name = str(name)
+                if support_code not in self.consoles:
+                    self.consoles[support_code] = [BLANK_CAPCOM_ID] * 6
+                self.consoles[support_code][slot_index - 1] = capcom_id
+                self.capcom_ids[capcom_id] = {"name": name, "session": None}
+                self.friend_lists[capcom_id] = []
+
+            cursor.execute("SELECT capcom_id, friend_id FROM friend_lists")
+            rows = cursor.fetchall()
+            for capcom_id, friend_id in rows:
+                capcom_id = str(capcom_id)
+                friend_id = str(friend_id)
+                self.friend_lists[capcom_id].append(friend_id)
+
+    def force_update(self):
+        """For debugging purpose."""
+        with self.connection.cursor() as cursor:
+            for support_code, capcom_ids in self.consoles.items():
+                for slot_index, capcom_id in enumerate(capcom_ids, 1):
+                    info = self.capcom_ids.get(capcom_id, {"name": ""})
+                    query = "INSERT IGNORE INTO consoles"\
+                        +" (support_code, slot_index, capcom_id, name)"\
+                        +" VALUES (%s, %s, %s, %s);"
+                    cursor.execute(
+                        query,
+                        (support_code, slot_index, capcom_id, info["name"])
+                    )
+
+            for capcom_id, friend_ids in self.friend_lists.items():
+                for friend_id in friend_ids:
+                    query = "INSERT IGNORE INTO friend_lists"\
+                        +" (capcom_id, friend_id)"\
+                        +" VALUES (%s, %s);"
+                    cursor.execute(
+                       query,
+                       (capcom_id, friend_id)
+                    )
+
+    def assign_capcom_id(self, online_support_code, index, capcom_id):
+        """Assign a Capcom ID to an online support code."""
+        self.consoles[online_support_code][index] = capcom_id
+        with self.connection.cursor() as cursor:
+            query = "REPLACE INTO consoles"\
+                +" (support_code, slot_index, capcom_id, name)"\
+                +" VALUES (%s, %s, %s, %s);"
+            cursor.execute(
+                query,
+                (online_support_code, index, capcom_id, "????")
+            )
+
+    def get_capcom_ids(self, online_support_code):
+        """Get list of associated Capcom IDs from an online support code."""
+        with self.connection.cursor() as cursor:
+            query = "SELECT slot_index, capcom_id FROM consoles"\
+                +" WHERE support_code = %s;"
+            cursor.execute(
+                query,
+                (online_support_code,)
+            )
+            rows = cursor.fetchall()
+            ids = []
+            for index, id in rows:
+                id = str(id)
+                while len(ids) < index:
+                    ids.append(BLANK_CAPCOM_ID)
+                ids.append(id)
+            while len(ids) < 6:
+                ids.append(BLANK_CAPCOM_ID)
+            return ids
+
+    def get_name(self, capcom_id):
+        """Get the hunter name associated with a valid Capcom ID."""
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT name FROM consoles WHERE capcom_id = %s;",
+                (capcom_id,)
+            )
+            rows = cursor.fetchall()
+            names = [str(name) for name, in rows]
+            if len(names):
+                return names[0]
+            return ""
+
+    def use_user(self, session, index, name):
+        """Insert the current hunter's info into a selected Capcom ID slot."""
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "REPLACE INTO consoles VALUES (%s,%s,%s,%s);",
+                (session.online_support_code, index,
+                 session.capcom_id, session.hunter_name)
+            )
+
+    def accept_friend(self, capcom_id, friend_id, accepted):
+        if accepted:
+            with self.connection.cursor() as cursor:
+                query = "REPLACE INTO friend_lists (capcom_id, friend_id)"\
+                    +" VALUES (%s,%s);"
+                cursor.execute(
+                    query,
+                    (capcom_id, friend_id)
+                )
+                cursor.execute(
+                    query,
+                    (friend_id, capcom_id)
+                )
+        return self.parent.accept_friend(capcom_id, friend_id, accepted)
+
+    def delete_friend(self, capcom_id, friend_id):
+        with self.connection.cursor() as cursor:
+            query = "DELETE FROM friend_lists"\
+                +" WHERE capcom_id = %s AND friend_id = %s;"
+            cursor.execute(
+                query,
+                (capcom_id, friend_id)
+            )
+        return self.parent.delete_friend(capcom_id, friend_id)
+
+    def get_friends(self, capcom_id, first_index=None, count=None):
+        begin = 0 if first_index is None else (first_index - 1)
+        end = count if count is None else (begin + count)
+        with self.connection.cursor() as cursor:
+            query = "SELECT friend_id, name FROM friend_lists"\
+                +" INNER JOIN consoles ON friend_lists.friend_id = consoles.capcom_id"\
+                +" WHERE friend_lists.capcom_id = %s;"
+            cursor.execute(
+                query,
+                (capcom_id,)
+            )
+            rows = cursor.fetchall()
+            friends = []
+            for friend_id, name in rows:
+                friend_id = str(friend_id)
+                name = str(name)
+                friends.append((friend_id, name))
+            return friends[begin:end]
+
 class DebugDatabase(TempSQLiteDatabase):
     """For testing purpose."""
     def __init__(self, *args, **kwargs):
@@ -420,7 +599,7 @@ class DebugDatabase(TempSQLiteDatabase):
             self.force_update()
 
 
-CURRENT_DB = TempSQLiteDatabase()
+CURRENT_DB = MySQLDatabase()
 
 
 def get_instance():
